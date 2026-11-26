@@ -2,14 +2,16 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, ArrowRight, BookOpen, Calendar, Download, RotateCcw } from 'lucide-react'
 import { BookCover } from '@/components/BookCover'
+import { WebReaderModal } from '@/components/WebReaderModal'
 import { useApp } from '@/context/AppContext'
 import { STUDENT_USER } from '@/data/mockData'
 import { cn, formatDateBR, getRemainingDays } from '@/lib/utils'
-import type { LoanStatus } from '@/types/arandu'
+import type { Book, LoanStatus } from '@/types/arandu'
 
 export function MyLoansPage() {
   const { books, loans, downloadBook, returnBook, borrowBook } = useApp()
   const [activeTab, setActiveTab] = useState<LoanStatus>('ativo')
+  const [readingBook, setReadingBook] = useState<Book | null>(null)
 
   const entries = loans
     .map((loan) => ({
@@ -34,7 +36,8 @@ export function MyLoansPage() {
       <div className="flex flex-col justify-between gap-4 rounded-lg border border-border bg-surface p-5 sm:flex-row sm:items-center sm:p-6">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider text-brilliant-azure-700">
-            Estante do Estudante • Matrícula {STUDENT_USER.enrollmentId}
+            Estante do Estudante •{' '}
+            <span className="whitespace-nowrap">Matrícula {STUDENT_USER.enrollmentId}</span>
           </p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
             Meus Empréstimos
@@ -101,7 +104,7 @@ export function MyLoansPage() {
           <div className="flex items-start gap-3 rounded-lg border border-watermelon-300 bg-watermelon-50 p-4 text-sm text-watermelon-800">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <p>
-              Você possui obras com o prazo de 7 dias encerrado. Clique em{' '}
+              Você possui obras com o prazo de empréstimo encerrado. Clique em{' '}
               <strong>Devolver agora</strong> para regularizar sua estante.
             </p>
           </div>
@@ -120,9 +123,10 @@ export function MyLoansPage() {
         ) : (
           visibleEntries.map(({ loan, book }) => {
             const daysLeft = getRemainingDays(loan.dueAt)
+            const totalWindowDays = Math.max(1, getRemainingDays(loan.dueAt) + Math.max(0, Math.round((Date.now() - new Date(loan.borrowedAt).getTime()) / (1000 * 60 * 60 * 24))))
             const progress =
               loan.status === 'ativo'
-                ? Math.max(10, Math.min(100, Math.round((daysLeft / 7) * 100)))
+                ? Math.max(10, Math.min(100, Math.round((daysLeft / totalWindowDays) * 100)))
                 : 100
 
             return (
@@ -159,10 +163,14 @@ export function MyLoansPage() {
                       </span>
                     )}
 
-                    <span className="rounded-xs border border-border bg-surface-secondary px-2 py-0.5 text-[10px] font-bold text-foreground">
+                    <span className="rounded-xs border border-border bg-surface-secondary px-2 py-0.5 text-[11px] font-bold text-foreground">
                       {book.format}
                     </span>
-                    <span className="text-xs text-muted">{book.fileSize}</span>
+                    <span className="text-xs text-muted">
+                      {book.accessMode === 'temporary_loan'
+                        ? 'Leitura no navegador'
+                        : `${book.fileSize} • Domínio público`}
+                    </span>
                   </div>
 
                   <Link
@@ -188,9 +196,22 @@ export function MyLoansPage() {
                     </span>
                   </div>
 
+                  {loan.status === 'ativo' && book.accessMode === 'public_domain' && (
+                    <p className="mt-2 text-xs text-muted">
+                      Dica: abra o arquivo {book.format} com ReadEra ou Google Play Livros no celular.
+                    </p>
+                  )}
+
                   {loan.status !== 'devolvido' && (
                     <div className="mt-3 max-w-sm">
-                      <div className="h-2 w-full overflow-hidden rounded-full bg-default">
+                      <div
+                        role="progressbar"
+                        aria-label={`Tempo restante de empréstimo para ${book.title}`}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={progress}
+                        className="h-2 w-full overflow-hidden rounded-full bg-default"
+                      >
                         <div
                           style={{ width: `${progress}%` }}
                           className={cn(
@@ -210,14 +231,25 @@ export function MyLoansPage() {
                 <div className="flex shrink-0 flex-wrap gap-2 sm:flex-col">
                   {loan.status === 'ativo' && (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => downloadBook(book.id)}
-                        className="inline-flex items-center justify-center gap-2 rounded-field bg-shadow-grey px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-accent hover:text-accent-foreground"
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        Baixar {book.format}
-                      </button>
+                      {book.accessMode === 'temporary_loan' ? (
+                        <button
+                          type="button"
+                          onClick={() => setReadingBook(book)}
+                          className="inline-flex items-center justify-center gap-2 rounded-field bg-shadow-grey px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-accent hover:text-accent-foreground"
+                        >
+                          <BookOpen className="h-3.5 w-3.5" />
+                          Ler no navegador
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => downloadBook(book.id)}
+                          className="inline-flex items-center justify-center gap-2 rounded-field bg-shadow-grey px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-accent hover:text-accent-foreground"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Baixar {book.format}
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => returnBook(loan.id)}
@@ -256,6 +288,12 @@ export function MyLoansPage() {
           })
         )}
       </div>
+
+      <WebReaderModal
+        open={Boolean(readingBook)}
+        onClose={() => setReadingBook(null)}
+        book={readingBook}
+      />
     </div>
   )
 }

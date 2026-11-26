@@ -1,4 +1,4 @@
-import React, { startTransition, useState } from 'react'
+import React, { startTransition, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { LogOut, Menu, ShieldCheck, UserCheck, X } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
@@ -15,6 +15,10 @@ export function AppLayout({ children, hideFooter = false }: AppLayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  useEffect(() => {
+    setMobileOpen(false)
+  }, [location.pathname])
 
   const activeLoansCount = loans.filter(
     (l) => l.status === 'ativo' || l.status === 'atrasado',
@@ -55,12 +59,14 @@ export function AppLayout({ children, hideFooter = false }: AppLayoutProps) {
                 >
                   Acervo
                 </Link>
-                <a
-                  href="#rodape"
-                  className="text-sm font-medium text-muted transition-colors duration-150 hover:text-foreground"
-                >
-                  Sobre a escola
-                </a>
+                {!hideFooter && (
+                  <a
+                    href="#rodape"
+                    className="text-sm font-medium text-muted transition-colors duration-150 hover:text-foreground"
+                  >
+                    Sobre a escola
+                  </a>
+                )}
               </>
             )}
 

@@ -51,7 +51,12 @@ export function BookCover({
           className,
         )}
       >
-        <img src={coverUrl} alt={`Capa de ${title}`} className="h-full w-full object-cover" />
+        <img
+          src={coverUrl}
+          alt={`Capa de ${title}`}
+          loading="lazy"
+          className="h-full w-full object-cover"
+        />
       </div>
     )
   }
@@ -76,31 +81,35 @@ export function BookCover({
   return (
     <div
       className={cn(
-        'flex aspect-[2/3] w-full flex-col justify-between rounded-md border shadow-sm',
+        'flex aspect-[2/3] w-full flex-col justify-between overflow-hidden rounded-md border shadow-sm',
         size === 'lg' ? 'p-5 sm:p-6' : size === 'sm' ? 'p-3' : 'p-4',
         palette.surface,
         className,
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className={cn('text-[10px] font-semibold uppercase tracking-wider', palette.muted)}>
+        <span className={cn('text-[11px] font-semibold uppercase tracking-wider', palette.muted)}>
           Arandu
         </span>
-        <span className="rounded-xs bg-black/15 px-1.5 py-0.5 text-[10px] font-bold">
+        <span className="rounded-xs bg-black/15 px-1.5 py-0.5 text-[11px] font-bold">
           {format}
         </span>
       </div>
 
-      <div className="my-auto py-2">
+      <div className="my-auto min-w-0 py-2">
         <h4
           className={cn(
-            'line-clamp-4 font-bold leading-snug tracking-tight',
-            size === 'lg' ? 'text-xl sm:text-2xl' : size === 'sm' ? 'text-sm' : 'text-base sm:text-lg',
+            'line-clamp-4 break-words font-bold leading-snug tracking-tight',
+            size === 'lg'
+              ? 'text-xl sm:text-2xl'
+              : size === 'sm'
+                ? 'text-[13px] sm:text-sm'
+                : 'text-sm sm:text-base',
           )}
         >
           {title}
         </h4>
-        <p className={cn('mt-1.5 line-clamp-2 text-xs', palette.muted)}>{author}</p>
+        <p className={cn('mt-1.5 line-clamp-2 break-words text-xs', palette.muted)}>{author}</p>
       </div>
 
       <span className={cn('h-1.5 w-8 rounded-full', palette.accent)} aria-hidden="true" />

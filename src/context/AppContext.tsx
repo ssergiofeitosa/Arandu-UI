@@ -190,8 +190,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ])
 
       pushToast({
-        title: 'Empréstimo confirmado por 7 dias',
-        description: `"${book.title}" liberado para download (${book.format}).`,
+        title:
+          book.accessMode === 'temporary_loan'
+            ? 'Empréstimo temporário confirmado'
+            : 'Obra liberada para download',
+        description:
+          book.accessMode === 'temporary_loan'
+            ? `Leitura de "${book.title}" disponível no navegador.`
+            : `"${book.title}" pronta para download (${book.format}).`,
         variant: 'success',
       })
       return created
@@ -291,11 +297,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (bookId: string) => {
       const target = books.find((b) => b.id === bookId)
       if (!target) return
-      const next = !target.visible
+      const previous = target.visible
+      const next = !previous
       setBooks((prev) => prev.map((b) => (b.id === bookId ? { ...b, visible: next } : b)))
       pushToast({
         title: next ? 'Obra visível no catálogo' : 'Obra ocultada do catálogo',
         description: target.title,
+        actionLabel: 'Desfazer',
+        onAction: () => {
+          setBooks((prev) => prev.map((b) => (b.id === bookId ? { ...b, visible: previous } : b)))
+        },
       })
     },
     [books, pushToast],
@@ -337,7 +348,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (studentId: string) => {
       const target = students.find((student) => student.id === studentId)
       if (!target) return
-      const nextStatus: Student['status'] = target.status === 'ativo' ? 'inativo' : 'ativo'
+      const previousStatus = target.status
+      const nextStatus: Student['status'] = previousStatus === 'ativo' ? 'inativo' : 'ativo'
       setStudents((prev) =>
         prev.map((student) =>
           student.id === studentId ? { ...student, status: nextStatus } : student,
@@ -346,6 +358,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       pushToast({
         title: nextStatus === 'ativo' ? 'Aluno reativado' : 'Aluno desativado',
         description: `${target.name} (${target.enrollmentId})`,
+        actionLabel: 'Desfazer',
+        onAction: () => {
+          setStudents((prev) =>
+            prev.map((student) =>
+              student.id === studentId ? { ...student, status: previousStatus } : student,
+            ),
+          )
+        },
       })
     },
     [pushToast, students],

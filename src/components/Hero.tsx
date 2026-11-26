@@ -111,8 +111,10 @@ export function Hero() {
                 </dd>
               </div>
               <div>
-                <dt className="text-xs font-medium text-muted">Empréstimo rápido</dt>
-                <dd className="mt-1 text-2xl font-bold tracking-tight text-foreground">7 dias</dd>
+                <dt className="text-xs font-medium text-muted">Leitura flexível</dt>
+                <dd className="mt-1 whitespace-nowrap text-2xl font-bold tracking-tight text-foreground">
+                  Online &amp; App
+                </dd>
               </div>
             </dl>
           </div>
@@ -214,6 +216,7 @@ export function Hero() {
                             <img
                               src={book.coverUrl}
                               alt={book.title}
+                              loading="lazy"
                               className="h-full w-full object-cover"
                             />
                           </div>

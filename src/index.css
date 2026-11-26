@@ -26,10 +26,10 @@
     --field-background: oklch(100.00% 0.0008 155.00);
     --field-border: transparent;
     --field-foreground: oklch(21.03% 0.0015 155.00);
-    --field-placeholder: oklch(55.17% 0.0030 155.00);
+    --field-placeholder: oklch(42.00% 0.0040 155.00);
     --focus: oklch(82.00% 0.1200 155.00);
     --foreground: oklch(21.03% 0.0015 155.00);
-    --muted: oklch(55.17% 0.0030 155.00);
+    --muted: oklch(42.00% 0.0040 155.00);
     --overlay: oklch(100.00% 0.0004 155.00);
     --overlay-foreground: oklch(21.03% 0.0015 155.00);
     --scrollbar: oklch(87.10% 0.0015 155.00);

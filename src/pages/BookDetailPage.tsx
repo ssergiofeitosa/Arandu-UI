@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -5,10 +6,13 @@ import {
   CalendarClock,
   CheckCircle2,
   Download,
+  Globe,
   GraduationCap,
   RotateCcw,
+  Smartphone,
 } from 'lucide-react'
 import { BookCover } from '@/components/BookCover'
+import { WebReaderModal } from '@/components/WebReaderModal'
 import { useApp } from '@/context/AppContext'
 import { formatDateBR, getRemainingDays } from '@/lib/utils'
 
@@ -16,6 +20,7 @@ export function BookDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { books, getActiveLoan, borrowBook, returnBook, downloadBook } = useApp()
+  const [readerOpen, setReaderOpen] = useState(false)
 
   const book = books.find((b) => b.id === id)
 
@@ -39,12 +44,21 @@ export function BookDetailPage() {
 
   const activeLoan = getActiveLoan(book.id)
   const remainingDays = activeLoan ? getRemainingDays(activeLoan.dueAt) : 0
+  const isPublicDomain = book.accessMode === 'public_domain'
+
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1)
+    } else {
+      navigate('/catalogo')
+    }
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-5 py-8 sm:px-6 sm:py-10 lg:px-10">
       <button
         type="button"
-        onClick={() => navigate(-1)}
+        onClick={handleBack}
         className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-muted transition-colors hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
@@ -52,56 +66,8 @@ export function BookDetailPage() {
       </button>
 
       <div className="grid gap-8 lg:grid-cols-12">
-        {/* Capa 2:3 e ficha técnica */}
-        <div className="min-w-0 lg:col-span-4">
-          <div className="mx-auto max-w-[260px] lg:max-w-none">
-            <BookCover
-              title={book.title}
-              author={book.author}
-              coverUrl={book.coverUrl}
-              format={book.format}
-              tone={book.fallbackTone}
-              size="lg"
-            />
-          </div>
-
-          <div className="mt-5 rounded-lg border border-border bg-surface p-5">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
-              Ficha Técnica
-            </h2>
-            <dl className="mt-3.5 space-y-2.5 text-sm">
-              <div className="flex items-center justify-between border-b border-separator pb-2">
-                <dt className="text-muted">Formato</dt>
-                <dd className="rounded-xs border border-border bg-surface-secondary px-2 py-0.5 text-xs font-bold text-foreground">
-                  {book.format}
-                </dd>
-              </div>
-              <div className="flex items-center justify-between border-b border-separator pb-2">
-                <dt className="text-muted">Tamanho</dt>
-                <dd className="font-medium tabular-nums text-foreground">{book.fileSize}</dd>
-              </div>
-              <div className="flex items-center justify-between border-b border-separator pb-2">
-                <dt className="text-muted">Páginas</dt>
-                <dd className="font-medium tabular-nums text-foreground">{book.pages} págs.</dd>
-              </div>
-              <div className="flex items-center justify-between border-b border-separator pb-2">
-                <dt className="text-muted">Ano</dt>
-                <dd className="font-medium tabular-nums text-foreground">{book.year}</dd>
-              </div>
-              <div className="flex items-center justify-between border-b border-separator pb-2">
-                <dt className="text-muted">ISBN</dt>
-                <dd className="text-xs font-medium text-foreground">{book.isbn || 'Edição escolar'}</dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt className="text-muted">Downloads</dt>
-                <dd className="font-semibold tabular-nums text-foreground">{book.downloadsCount}</dd>
-              </div>
-            </dl>
-          </div>
-        </div>
-
-        {/* Informações e Card de Empréstimo */}
-        <div className="min-w-0 lg:col-span-8">
+        {/* Informações principais e Card de Leitura/Empréstimo (primeiro no mobile) */}
+        <div className="order-1 min-w-0 lg:order-2 lg:col-span-8 lg:col-start-5">
           <div className="flex flex-wrap gap-2">
             {book.categories.map((cat) => (
               <span
@@ -118,20 +84,63 @@ export function BookDetailPage() {
           </h1>
           <p className="mt-1.5 text-base font-medium text-brilliant-azure-700">por {book.author}</p>
 
-          {/* Card interativo de empréstimo */}
+          {/* Card interativo por modalidade de acesso */}
           <div className="mt-6 rounded-lg border border-border bg-surface p-5 shadow-sm sm:p-6">
-            {!activeLoan ? (
+            {isPublicDomain ? (
+              <div>
+                <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                  <div>
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-light-green/60 px-3 py-1 text-xs font-semibold text-shadow-grey">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Domínio Público • Download livre
+                    </span>
+                    <h2 className="mt-2.5 text-lg font-bold text-foreground">
+                      Baixe esta obra gratuitamente
+                    </h2>
+                    <p className="mt-1 text-sm text-muted">
+                      Arquivo em <strong className="text-foreground">{book.format}</strong> (
+                      {book.fileSize}) pronto para leitura offline no celular ou computador.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => downloadBook(book.id)}
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-field bg-shadow-grey px-5 py-3 text-sm font-semibold text-white transition-colors duration-200 hover:bg-accent hover:text-accent-foreground focus-visible:outline-focus"
+                  >
+                    <Download className="h-4 w-4" />
+                    Baixar {book.format} ({book.fileSize})
+                  </button>
+                </div>
+
+                {/* Dica prática de apps gratuitos após baixar */}
+                <div className="mt-5 flex items-start gap-3 rounded-md border border-border bg-surface-secondary p-3.5">
+                  <Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-brilliant-azure-700" />
+                  <div className="text-xs leading-relaxed text-muted">
+                    <p className="font-semibold text-foreground">
+                      Dica de leitura após o download ({book.format})
+                    </p>
+                    <p className="mt-0.5">
+                      {book.format === 'EPUB'
+                        ? 'No celular, abra o arquivo .epub usando aplicativos gratuitos como ReadEra, Google Play Livros ou Lithium. No computador, você pode usar o Calibre.'
+                        : 'No celular ou computador, abra o PDF direto no navegador ou com leitores gratuitos como ReadEra, Google Drive e Adobe Acrobat.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : !activeLoan ? (
               <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
                 <div>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-light-green/60 px-3 py-1 text-xs font-semibold text-shadow-grey">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    Disponível para empréstimo
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-brilliant-azure-50 px-3 py-1 text-xs font-semibold text-brilliant-azure-800">
+                    <Globe className="h-3.5 w-3.5" />
+                    Aluguel Temporário • Leitura no navegador
                   </span>
                   <h2 className="mt-2.5 text-lg font-bold text-foreground">
-                    Solicite a cópia digital gratuita por 7 dias
+                    Solicite o empréstimo para ler online
                   </h2>
                   <p className="mt-1 text-sm text-muted">
-                    Download liberado imediatamente em {book.format} ({book.fileSize}).
+                    Acesso temporário protegido direto no navegador, sem precisar baixar arquivos
+                    nem instalar outros aplicativos.
                   </p>
                 </div>
 
@@ -141,7 +150,7 @@ export function BookDetailPage() {
                   className="inline-flex shrink-0 items-center justify-center gap-2 rounded-field bg-shadow-grey px-5 py-3 text-sm font-semibold text-white transition-colors duration-200 hover:bg-accent hover:text-accent-foreground focus-visible:outline-focus"
                 >
                   <BookOpen className="h-4 w-4" />
-                  Solicitar Empréstimo Digital (7 dias)
+                  Solicitar Empréstimo Temporário
                 </button>
               </div>
             ) : (
@@ -166,7 +175,8 @@ export function BookDetailPage() {
 
                     <span className="inline-flex items-center gap-1.5 text-xs text-muted">
                       <CalendarClock className="h-3.5 w-3.5" />
-                      Prazo: <strong className="text-foreground">{formatDateBR(activeLoan.dueAt)}</strong>
+                      Prazo:{' '}
+                      <strong className="text-foreground">{formatDateBR(activeLoan.dueAt)}</strong>
                     </span>
                   </div>
 
@@ -179,18 +189,18 @@ export function BookDetailPage() {
                 </div>
 
                 <p className="mt-3 text-sm text-muted">
-                  Arquivo <span className="font-medium text-foreground">{book.fileName}</span>{' '}
-                  pronto para leitura offline.
+                  Esta edição tem aluguel temporário: a leitura fica disponível diretamente pelo
+                  leitor web do navegador enquanto o empréstimo estiver ativo.
                 </p>
 
                 <div className="mt-5 flex flex-wrap gap-3">
                   <button
                     type="button"
-                    onClick={() => downloadBook(book.id)}
+                    onClick={() => setReaderOpen(true)}
                     className="inline-flex items-center gap-2 rounded-field bg-shadow-grey px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-focus"
                   >
-                    <Download className="h-4 w-4" />
-                    Baixar {book.format} ({book.fileSize})
+                    <BookOpen className="h-4 w-4" />
+                    Ler no navegador
                   </button>
                   <button
                     type="button"
@@ -226,7 +236,63 @@ export function BookDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* Capa 2:3 e ficha técnica */}
+        <div className="order-2 min-w-0 lg:order-1 lg:col-span-4 lg:col-start-1 lg:row-start-1">
+          <div className="mx-auto max-w-[220px] lg:max-w-none">
+            <BookCover
+              title={book.title}
+              author={book.author}
+              coverUrl={book.coverUrl}
+              format={book.format}
+              tone={book.fallbackTone}
+              size="lg"
+            />
+          </div>
+
+          <div className="mt-5 rounded-lg border border-border bg-surface p-5">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
+              Ficha Técnica
+            </h2>
+            <dl className="mt-3.5 space-y-2.5 text-sm">
+              <div className="flex items-center justify-between border-b border-separator pb-2">
+                <dt className="text-muted">Acesso</dt>
+                <dd className="text-xs font-semibold text-foreground">
+                  {isPublicDomain ? 'Domínio público (download)' : 'Aluguel temporário (web)'}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between border-b border-separator pb-2">
+                <dt className="text-muted">Formato</dt>
+                <dd className="rounded-xs border border-border bg-surface-secondary px-2 py-0.5 text-xs font-bold text-foreground">
+                  {book.format}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between border-b border-separator pb-2">
+                <dt className="text-muted">Tamanho</dt>
+                <dd className="font-medium tabular-nums text-foreground">{book.fileSize}</dd>
+              </div>
+              <div className="flex items-center justify-between border-b border-separator pb-2">
+                <dt className="text-muted">Páginas</dt>
+                <dd className="font-medium tabular-nums text-foreground">{book.pages} págs.</dd>
+              </div>
+              <div className="flex items-center justify-between border-b border-separator pb-2">
+                <dt className="text-muted">Ano</dt>
+                <dd className="font-medium tabular-nums text-foreground">{book.year}</dd>
+              </div>
+              <div className="flex items-center justify-between border-b border-separator pb-2">
+                <dt className="text-muted">ISBN</dt>
+                <dd className="text-xs font-medium text-foreground">{book.isbn || 'Edição escolar'}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt className="text-muted">Acessos</dt>
+                <dd className="font-semibold tabular-nums text-foreground">{book.downloadsCount}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
       </div>
+
+      <WebReaderModal open={readerOpen} onClose={() => setReaderOpen(false)} book={book} />
     </div>
   )
 }

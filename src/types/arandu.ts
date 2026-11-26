@@ -2,6 +2,8 @@ export type UserRole = 'student' | 'teacher'
 
 export type BookFormat = 'PDF' | 'EPUB'
 
+export type BookAccessMode = 'public_domain' | 'temporary_loan'
+
 export type Category =
   | 'Literatura Brasileira'
   | 'Matemática'
@@ -18,6 +20,7 @@ export interface Book {
   isbn?: string
   categories: Category[]
   format: BookFormat
+  accessMode: BookAccessMode
   fileSize: string
   fileName: string
   pages: number
@@ -56,6 +59,8 @@ export interface ToastItem {
   title: string
   description?: string
   variant?: 'default' | 'success'
+  actionLabel?: string
+  onAction?: () => void
 }
 
 export type SchoolShift = 'Integral' | 'Manhã' | 'Tarde'

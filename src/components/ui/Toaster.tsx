@@ -9,7 +9,7 @@ export function Toaster() {
   return (
     <div
       aria-live="polite"
-      className="pointer-events-none fixed bottom-20 right-4 z-50 flex w-[calc(100%-2rem)] max-w-sm flex-col gap-2"
+      className="pointer-events-none fixed right-4 top-20 z-50 flex w-[calc(100%-2rem)] max-w-sm flex-col gap-2"
     >
       {toasts.map((toast) => (
         <div
@@ -28,6 +28,18 @@ export function Toaster() {
             <p className="text-sm font-semibold leading-snug text-foreground">{toast.title}</p>
             {toast.description && (
               <p className="mt-0.5 text-xs leading-relaxed text-muted">{toast.description}</p>
+            )}
+            {toast.actionLabel && toast.onAction && (
+              <button
+                type="button"
+                onClick={() => {
+                  toast.onAction?.()
+                  dismissToast(toast.id)
+                }}
+                className="mt-2 inline-flex rounded-sm border border-border bg-surface-secondary px-2.5 py-1 text-xs font-semibold text-foreground transition-colors hover:bg-default focus-visible:outline-focus"
+              >
+                {toast.actionLabel}
+              </button>
             )}
           </div>
           <button

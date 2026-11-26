@@ -45,7 +45,7 @@ export function CatalogPage() {
               Catálogo Digital
             </h1>
             <p className="mt-1 text-sm text-muted">
-              Escolha uma obra para ler a sinopse e solicitar o empréstimo por 7 dias.
+              Escolha uma obra para consultar a sinopse, baixar ou ler no navegador.
             </p>
           </div>
           <span className="text-xs font-medium text-muted">
@@ -81,7 +81,7 @@ export function CatalogPage() {
           <div
             role="group"
             aria-label="Filtrar por formato"
-            className="inline-flex h-11 items-center rounded-field border border-border bg-surface-secondary p-1"
+            className="grid h-11 grid-cols-3 items-center rounded-field border border-border bg-surface-secondary p-1 md:inline-flex"
           >
             {(['Todos', 'PDF', 'EPUB'] as const).map((fmt) => {
               const active = selectedFormat === fmt
@@ -96,7 +96,7 @@ export function CatalogPage() {
                     active ? 'bg-shadow-grey text-white' : 'text-muted hover:text-foreground',
                   )}
                 >
-                  {fmt === 'Todos' ? 'Todos' : fmt}
+                  {fmt}
                 </button>
               )
             })}
@@ -176,9 +176,14 @@ export function CatalogPage() {
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-1.5 border-t border-separator pt-2.5">
-                    <span className="rounded-xs border border-border bg-surface-secondary px-2 py-0.5 text-[10px] font-bold text-foreground">
-                      {book.format}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="rounded-xs border border-border bg-surface-secondary px-2 py-0.5 text-[11px] font-bold text-foreground">
+                        {book.format}
+                      </span>
+                      <span className="hidden text-[11px] font-medium text-muted sm:inline">
+                        {book.accessMode === 'public_domain' ? 'Download' : 'Leitor web'}
+                      </span>
+                    </div>
 
                     {!loan ? (
                       <span className="rounded-full bg-light-green/55 px-2.5 py-0.5 text-[11px] font-semibold text-shadow-grey">

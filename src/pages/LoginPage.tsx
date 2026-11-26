@@ -24,7 +24,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="grid min-h-[calc(100vh-68px)] lg:grid-cols-12">
+    <div className="grid min-h-[calc(100vh-69px)] lg:grid-cols-12">
       {/* Painel esquerdo escuro com logo clara */}
       <aside className="flex flex-col justify-between bg-shadow-grey px-6 py-10 text-white sm:px-10 lg:col-span-6 lg:px-14 lg:py-14">
         <div>
@@ -44,7 +44,7 @@ export function LoginPage() {
             />
           </div>
 
-          <h1 className="mt-8 max-w-md text-3xl font-bold leading-[1.12] tracking-tight text-white sm:text-4xl">
+          <h1 className="mt-8 max-w-md text-balance text-3xl font-bold leading-[1.12] tracking-tight text-white sm:text-4xl">
             Sua estante escolar de leitura digital, aberta o ano inteiro.
           </h1>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-shadow-grey-200 sm:text-base">
@@ -127,7 +127,7 @@ export function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword((prev) => !prev)}
-                  aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                  aria-label="Alternar visibilidade da senha"
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted hover:text-foreground"
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

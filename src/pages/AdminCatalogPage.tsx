@@ -17,6 +17,7 @@ import {
 import { BookCover } from '@/components/BookCover'
 import { BookFormModal } from '@/components/admin/BookFormModal'
 import { StudentFormModal } from '@/components/admin/StudentFormModal'
+import { DialogModal } from '@/components/ui/DialogModal'
 import { useApp, type NewBookPayload, type NewStudentPayload } from '@/context/AppContext'
 import { CATEGORIES, GRADE_CLASSES, TEACHER_USER } from '@/data/mockData'
 import { cn, formatDateBR } from '@/lib/utils'
@@ -156,10 +157,13 @@ export function AdminCatalogPage() {
         ].map((kpi) => {
           const Icon = kpi.icon
           return (
-            <div key={kpi.label} className="rounded-lg border border-border bg-surface p-5">
-              <div className="flex items-center justify-between text-xs font-medium text-muted">
+            <div
+              key={kpi.label}
+              className="flex flex-col justify-between rounded-lg border border-border bg-surface p-5"
+            >
+              <div className="flex items-start justify-between gap-2 text-xs font-medium text-muted">
                 <span>{kpi.label}</span>
-                <Icon className="h-4 w-4 text-brilliant-azure-600" />
+                <Icon className="h-4 w-4 shrink-0 text-brilliant-azure-600" />
               </div>
               <p className="mt-2.5 text-3xl font-bold tabular-nums tracking-tight text-foreground">
                 {kpi.value}
@@ -236,7 +240,7 @@ export function AdminCatalogPage() {
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
               aria-label="Filtrar por categoria"
-              className="h-10 rounded-field border border-border bg-background px-3 text-sm text-foreground focus-visible:outline-focus"
+              className="h-10 rounded-field border border-border bg-background px-3 text-sm leading-normal text-foreground focus-visible:outline-focus"
             >
               <option value="Todas">Todas as categorias</option>
               {CATEGORIES.map((cat) => (
@@ -253,8 +257,8 @@ export function AdminCatalogPage() {
                 <tr>
                   <th className="px-4 py-3 font-semibold">Obra</th>
                   <th className="px-4 py-3 font-semibold">Categorias</th>
-                  <th className="px-4 py-3 font-semibold">Formato</th>
-                  <th className="px-4 py-3 font-semibold">Downloads</th>
+                  <th className="px-4 py-3 font-semibold">Acesso / Formato</th>
+                  <th className="px-4 py-3 font-semibold">Acessos</th>
                   <th className="px-4 py-3 font-semibold">Status</th>
                   <th className="px-4 py-3 text-right font-semibold">Ações</th>
                 </tr>
@@ -298,9 +302,14 @@ export function AdminCatalogPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3.5">
-                        <span className="rounded-xs border border-border bg-surface-secondary px-2 py-0.5 text-[11px] font-bold text-foreground">
-                          {book.format}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="rounded-xs border border-border bg-surface-secondary px-2 py-0.5 text-[11px] font-bold text-foreground">
+                            {book.format}
+                          </span>
+                          <span className="whitespace-nowrap text-xs text-muted">
+                            {book.accessMode === 'public_domain' ? 'Domínio público' : 'Leitor web'}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-4 py-3.5 font-semibold tabular-nums text-foreground">
                         {book.downloadsCount}
@@ -350,7 +359,7 @@ export function AdminCatalogPage() {
                           <button
                             type="button"
                             onClick={() => setLoansBook(book)}
-                            className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-semibold text-foreground hover:bg-surface-secondary"
+                            className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-semibold text-foreground hover:bg-surface-secondary"
                           >
                             <Users className="h-3.5 w-3.5" />
                             Empréstimos ({activeCount})
@@ -379,33 +388,19 @@ export function AdminCatalogPage() {
               />
             </div>
 
-            <div className="flex flex-wrap items-center gap-2.5">
-              <select
-                value={gradeFilter}
-                onChange={(e) => setGradeFilter(e.target.value)}
-                aria-label="Filtrar por turma"
-                className="h-10 rounded-field border border-border bg-background px-3 text-sm text-foreground focus-visible:outline-focus"
-              >
-                <option value="Todas">Todas as turmas</option>
-                {GRADE_CLASSES.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingStudent(null)
-                  setStudentModalOpen(true)
-                }}
-                className="inline-flex h-10 items-center gap-1.5 rounded-field bg-shadow-grey px-4 text-xs font-semibold text-white transition-colors hover:bg-accent hover:text-accent-foreground"
-              >
-                <UserPlus className="h-3.5 w-3.5" />
-                Novo Aluno
-              </button>
-            </div>
+            <select
+              value={gradeFilter}
+              onChange={(e) => setGradeFilter(e.target.value)}
+              aria-label="Filtrar por turma"
+              className="h-10 rounded-field border border-border bg-background px-3 text-sm leading-normal text-foreground focus-visible:outline-focus"
+            >
+              <option value="Todas">Todas as turmas</option>
+              {GRADE_CLASSES.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="overflow-x-auto">
@@ -457,7 +452,7 @@ export function AdminCatalogPage() {
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3.5 font-semibold tabular-nums text-foreground">
+                        <td className="whitespace-nowrap px-4 py-3.5 font-semibold tabular-nums text-foreground">
                           {student.enrollmentId}
                         </td>
                         <td className="px-4 py-3.5">
@@ -468,7 +463,7 @@ export function AdminCatalogPage() {
                             <span className="text-xs text-muted">{student.shift}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-3.5 tabular-nums text-foreground">
+                        <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-foreground">
                           {activeLoansCount > 0 ? (
                             <span className="font-semibold text-brilliant-azure-700">
                               {activeLoansCount} {activeLoansCount === 1 ? 'ativo' : 'ativos'}
@@ -549,16 +544,18 @@ export function AdminCatalogPage() {
       />
 
       {/* Modal de Empréstimos por obra */}
-      {loansBook && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-shadow-grey/50 p-4"
-        >
-          <div className="w-full max-w-lg rounded-lg border border-border bg-surface p-6 shadow-2xl">
+      <DialogModal
+        open={Boolean(loansBook)}
+        onClose={() => setLoansBook(null)}
+        labelledBy="modal-loans-title"
+        maxWidthClass="max-w-lg"
+        className="p-6"
+      >
+        {loansBook && (
+          <>
             <div className="flex items-start justify-between gap-4 border-b border-separator pb-3">
               <div>
-                <h2 className="text-lg font-bold text-foreground">
+                <h2 id="modal-loans-title" className="text-lg font-bold text-foreground">
                   Empréstimos de “{loansBook.title}”
                 </h2>
                 <p className="text-xs text-muted">Estudantes com exemplares digitais recentes.</p>
@@ -587,7 +584,8 @@ export function AdminCatalogPage() {
                     <div>
                       <p className="text-sm font-semibold text-foreground">{item.studentName}</p>
                       <p className="text-xs text-muted">
-                        Matrícula {item.enrollmentId} • {item.gradeClass}
+                        <span className="whitespace-nowrap">Matrícula {item.enrollmentId}</span> •{' '}
+                        {item.gradeClass}
                       </p>
                     </div>
                     <div className="text-right">
@@ -615,9 +613,9 @@ export function AdminCatalogPage() {
                 ))
               )}
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </DialogModal>
     </div>
   )
 }
