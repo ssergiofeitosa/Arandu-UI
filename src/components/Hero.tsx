@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BookOpen, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react'
+import { BookOpen, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Slider } from '@/components/ui/Slider'
 
 interface FeaturedBook {
@@ -135,7 +135,7 @@ export function Hero() {
                 ENEM em PDF e EPUB — direto no celular ou no computador da escola.
               </p>
 
-              <dl className="mt-8 grid grid-cols-2 gap-6 border-t border-separator pt-6 sm:grid-cols-4">
+              <dl className="mt-8 grid grid-cols-2 gap-5 border-t border-separator pt-6 sm:grid-cols-4">
                 <div>
                   <dt className="text-xs font-medium text-muted">Obras digitais</dt>
                   <dd className="mt-1 text-2xl font-bold tracking-tight text-foreground">+420</dd>
@@ -146,7 +146,7 @@ export function Hero() {
                 </div>
                 <div>
                   <dt className="text-xs font-medium text-muted">Leitura offline</dt>
-                  <dd className="mt-1 text-2xl font-bold tracking-tight text-foreground">
+                  <dd className="mt-1 whitespace-nowrap text-2xl font-bold tracking-tight text-foreground">
                     PDF &amp; EPUB
                   </dd>
                 </div>
