@@ -1,12 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  AlertCircle,
   BookCopy,
+  Check,
+  ChevronLeft,
+  ChevronRight,
   Clock,
+  Copy,
   Edit3,
   Eye,
   EyeOff,
   GraduationCap,
+  KeyRound,
+  Loader2,
   Plus,
+  RefreshCw,
   Search,
   UserCheck,
   UserPlus,
@@ -18,10 +26,20 @@ import { BookCover } from '@/components/BookCover'
 import { BookFormModal } from '@/components/admin/BookFormModal'
 import { StudentFormModal } from '@/components/admin/StudentFormModal'
 import { DialogModal } from '@/components/ui/DialogModal'
-import { useApp, type NewBookPayload, type NewStudentPayload } from '@/context/AppContext'
-import { CATEGORIES, GRADE_CLASSES } from '@/data/mockData'
+import { useApp, type NewBookPayload } from '@/context/AppContext'
+import { CATEGORIES } from '@/data/mockData'
 import { cn, formatDateBR } from '@/lib/utils'
-import type { Book, Student } from '@/types/arandu'
+import { ApiError } from '@/services/api'
+import {
+  createAluno,
+  createTurma,
+  listAlunos,
+  listTurmas,
+  updateAluno,
+  type CreateAlunoInput,
+  type UpdateAlunoInput,
+} from '@/services/gestaoContasService'
+import type { Book, ClassRoom, SchoolShiftCode, Student } from '@/types/arandu'
 
 type AdminTab = 'books' | 'students'
 
@@ -35,15 +53,13 @@ function getInitials(name: string): string {
 export function AdminCatalogPage() {
   const {
     user,
+    can,
     books,
     schoolLoans,
-    students,
     addBook,
     updateBook,
     toggleBookVisibility,
-    addStudent,
-    updateStudent,
-    toggleStudentStatus,
+    notify,
   } = useApp()
 
   const [activeTab, setActiveTab] = useState<AdminTab>('books')
@@ -53,15 +69,82 @@ export function AdminCatalogPage() {
   const [editingBook, setEditingBook] = useState<Book | null>(null)
   const [loansBook, setLoansBook] = useState<Book | null>(null)
 
+  // Estado real da API para Alunos e Turmas (Épico 2 — Onda 1)
+  const [classRooms, setClassRooms] = useState<ClassRoom[]>([])
+  const [students, setStudents] = useState<Student[]>([])
+  const [studentsTotal, setStudentsTotal] = useState(0)
+  const [studentsPage, setStudentsPage] = useState(1)
+  const [studentsTotalPages, setStudentsTotalPages] = useState(1)
+  const [studentsLoading, setStudentsLoading] = useState(true)
+  const [studentsError, setStudentsError] = useState('')
+  const [togglingStudentId, setTogglingStudentId] = useState<string | null>(null)
+
   const [studentQuery, setStudentQuery] = useState('')
-  const [gradeFilter, setGradeFilter] = useState('Todas')
+  const [debouncedStudentQuery, setDebouncedStudentQuery] = useState('')
+  const [classRoomFilter, setClassRoomFilter] = useState('Todas')
   const [studentModalOpen, setStudentModalOpen] = useState(false)
   const [editingStudent, setEditingStudent] = useState<Student | null>(null)
+  const [createdCredentials, setCreatedCredentials] = useState<{
+    student: Student
+    temporaryPassword: string
+  } | null>(null)
+  const [copiedPassword, setCopiedPassword] = useState(false)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedStudentQuery(studentQuery.trim())
+      setStudentsPage(1)
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [studentQuery])
+
+  const loadTurmas = useCallback(async () => {
+    if (!can('admin:classes')) return
+    try {
+      const response = await listTurmas({ pageSize: 50, ativa: true })
+      setClassRooms(response.results)
+    } catch {
+      // erro de turma será visível ao carregar alunos ou criar turma
+    }
+  }, [can])
+
+  const loadAlunos = useCallback(async () => {
+    if (!can('admin:students')) return
+    setStudentsLoading(true)
+    setStudentsError('')
+    try {
+      const response = await listAlunos({
+        page: studentsPage,
+        pageSize: 12,
+        search: debouncedStudentQuery || undefined,
+        turma: classRoomFilter !== 'Todas' ? classRoomFilter : undefined,
+      })
+      setStudents(response.results)
+      setStudentsTotal(response.count)
+      setStudentsTotalPages(Math.max(1, response.total_pages))
+    } catch (err) {
+      setStudentsError(
+        err instanceof ApiError
+          ? err.message
+          : 'Não foi possível carregar os estudantes da API.',
+      )
+    } finally {
+      setStudentsLoading(false)
+    }
+  }, [can, classRoomFilter, debouncedStudentQuery, studentsPage])
+
+  useEffect(() => {
+    void loadTurmas()
+  }, [loadTurmas])
+
+  useEffect(() => {
+    void loadAlunos()
+  }, [loadAlunos])
 
   const totalBooks = books.length
   const activeLoansTotal = schoolLoans.filter((l) => l.status === 'ativo').length
   const overdueTotal = schoolLoans.filter((l) => l.status === 'atrasado').length
-  const totalStudents = students.length
+  const totalStudents = studentsTotal
 
   const filteredBooks = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -77,19 +160,6 @@ export function AdminCatalogPage() {
     })
   }, [books, categoryFilter, query])
 
-  const filteredStudents = useMemo(() => {
-    const q = studentQuery.trim().toLowerCase()
-    return students.filter((student) => {
-      const matchesQuery =
-        !q ||
-        student.name.toLowerCase().includes(q) ||
-        student.enrollmentId.toLowerCase().includes(q) ||
-        student.email.toLowerCase().includes(q)
-      const matchesGrade = gradeFilter === 'Todas' || student.gradeClass === gradeFilter
-      return matchesQuery && matchesGrade
-    })
-  }, [gradeFilter, studentQuery, students])
-
   const handleSave = (payload: NewBookPayload, editingId?: string) => {
     if (editingId) {
       updateBook(editingId, payload)
@@ -98,12 +168,88 @@ export function AdminCatalogPage() {
     }
   }
 
-  const handleSaveStudent = (payload: NewStudentPayload, editingId?: string) => {
+  const handleCreateClassRoom = async (payload: {
+    name: string
+    shiftCode: SchoolShiftCode
+    schoolYear: number
+  }): Promise<ClassRoom> => {
+    const created = await createTurma(payload)
+    setClassRooms((prev) => [created, ...prev])
+    notify({
+      title: 'Turma cadastrada',
+      description: `${created.name} (${created.shift} • ${created.schoolYear})`,
+      variant: 'success',
+    })
+    return created
+  }
+
+  const handleSaveStudent = async (
+    payload: CreateAlunoInput | UpdateAlunoInput,
+    editingId?: string,
+  ) => {
     if (editingId) {
-      updateStudent(editingId, payload)
+      const updated = await updateAluno(editingId, payload as UpdateAlunoInput)
+      setStudents((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+      notify({
+        title: 'Cadastro do aluno atualizado',
+        description: `${updated.name} • Matrícula ${updated.enrollmentId}`,
+        variant: 'success',
+      })
     } else {
-      addStudent(payload)
+      const { student, temporaryPassword } = await createAluno(payload as CreateAlunoInput)
       setActiveTab('students')
+      if (temporaryPassword) {
+        setCopiedPassword(false)
+        setCreatedCredentials({ student, temporaryPassword })
+      }
+      notify({
+        title: 'Aluno cadastrado no PostgreSQL',
+        description: `${student.name} • Matrícula ${student.enrollmentId}`,
+        variant: 'success',
+      })
+      await loadAlunos()
+    }
+  }
+
+  const handleToggleStudentStatus = async (student: Student) => {
+    const nextActive = student.status !== 'ativo'
+    setTogglingStudentId(student.id)
+    try {
+      const updated = await updateAluno(student.id, { active: nextActive })
+      setStudents((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+      notify({
+        title: nextActive ? 'Aluno reativado' : 'Aluno desativado',
+        description: `${updated.name} (${updated.enrollmentId})`,
+        actionLabel: 'Desfazer',
+        onAction: () => {
+          void updateAluno(student.id, { active: !nextActive }).then((reverted) => {
+            setStudents((prev) => prev.map((item) => (item.id === reverted.id ? reverted : item)))
+          })
+        },
+      })
+    } catch (err) {
+      notify({
+        title: 'Erro ao atualizar status',
+        description:
+          err instanceof ApiError ? err.message : 'Não foi possível alterar o status do aluno.',
+      })
+    } finally {
+      setTogglingStudentId(null)
+    }
+  }
+
+  const handleCopyTempPassword = async () => {
+    if (!createdCredentials) return
+    try {
+      await navigator.clipboard.writeText(createdCredentials.temporaryPassword)
+      setCopiedPassword(true)
+      notify({
+        title: 'Senha temporária copiada',
+        description: 'Pronta para compartilhar com o estudante.',
+        variant: 'success',
+      })
+    } catch {
+      // clipboard indisponível em contexto restrito
     }
   }
 
@@ -215,7 +361,7 @@ export function AdminCatalogPage() {
             <GraduationCap className="h-4 w-4" />
             Alunos
             <span className="rounded-full bg-default px-2 py-0.5 text-[11px] font-bold tabular-nums text-foreground">
-              {students.length}
+              {studentsTotal}
             </span>
           </button>
         </div>
@@ -390,36 +536,60 @@ export function AdminCatalogPage() {
             </div>
 
             <select
-              value={gradeFilter}
-              onChange={(e) => setGradeFilter(e.target.value)}
+              value={classRoomFilter}
+              onChange={(e) => {
+                setClassRoomFilter(e.target.value)
+                setStudentsPage(1)
+              }}
               aria-label="Filtrar por turma"
               className="h-10 rounded-field border border-border bg-background px-3 text-sm leading-normal text-foreground focus-visible:outline-focus"
             >
               <option value="Todas">Todas as turmas</option>
-              {GRADE_CLASSES.map((item) => (
-                <option key={item} value={item}>
-                  {item}
+              {classRooms.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name} ({item.shift})
                 </option>
               ))}
             </select>
           </div>
 
           <div className="overflow-x-auto">
-            {filteredStudents.length === 0 ? (
+            {studentsError ? (
+              <div className="flex flex-col items-center gap-3 p-10 text-center">
+                <AlertCircle className="h-6 w-6 text-watermelon-600" />
+                <p className="text-sm font-medium text-foreground">{studentsError}</p>
+                <button
+                  type="button"
+                  onClick={() => void loadAlunos()}
+                  className="inline-flex items-center gap-1.5 rounded-field border border-border bg-surface-secondary px-4 py-1.5 text-xs font-semibold text-foreground hover:bg-default"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Tentar novamente
+                </button>
+              </div>
+            ) : studentsLoading ? (
+              <div className="flex items-center justify-center gap-2.5 p-10 text-sm text-muted">
+                <Loader2 className="h-4 w-4 animate-spin text-brilliant-azure-600" />
+                Carregando estudantes...
+              </div>
+            ) : students.length === 0 ? (
               <div className="p-10 text-center">
                 <p className="text-sm font-medium text-foreground">
                   Nenhum estudante encontrado com os filtros atuais.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStudentQuery('')
-                    setGradeFilter('Todas')
-                  }}
-                  className="mt-3 rounded-field border border-border bg-surface-secondary px-4 py-1.5 text-xs font-semibold text-foreground hover:bg-default"
-                >
-                  Limpar filtros
-                </button>
+                {(studentQuery || classRoomFilter !== 'Todas') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStudentQuery('')
+                      setClassRoomFilter('Todas')
+                      setStudentsPage(1)
+                    }}
+                    className="mt-3 rounded-field border border-border bg-surface-secondary px-4 py-1.5 text-xs font-semibold text-foreground hover:bg-default"
+                  >
+                    Limpar filtros
+                  </button>
+                )}
               </div>
             ) : (
               <table className="w-full text-left text-sm">
@@ -434,11 +604,12 @@ export function AdminCatalogPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-separator">
-                  {filteredStudents.map((student) => {
+                  {students.map((student) => {
                     const activeLoansCount = schoolLoans.filter(
                       (loan) =>
                         loan.enrollmentId === student.enrollmentId && loan.status !== 'devolvido',
                     ).length
+                    const isToggling = togglingStudentId === student.id
 
                     return (
                       <tr key={student.id} className="hover:bg-surface-secondary/50">
@@ -461,7 +632,9 @@ export function AdminCatalogPage() {
                             <span className="whitespace-nowrap rounded-full border border-border bg-surface-secondary px-2.5 py-0.5 text-[11px] font-semibold text-foreground">
                               {student.gradeClass}
                             </span>
-                            <span className="text-xs text-muted">{student.shift}</span>
+                            {student.classRoomId && (
+                              <span className="text-xs text-muted">{student.shift}</span>
+                            )}
                           </div>
                         </td>
                         <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-foreground">
@@ -500,10 +673,13 @@ export function AdminCatalogPage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => toggleStudentStatus(student.id)}
-                              className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-default"
+                              disabled={isToggling}
+                              onClick={() => void handleToggleStudentStatus(student)}
+                              className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-default disabled:opacity-50"
                             >
-                              {student.status === 'ativo' ? (
+                              {isToggling ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : student.status === 'ativo' ? (
                                 <>
                                   <UserX className="h-3.5 w-3.5" />
                                   Desativar
@@ -524,6 +700,36 @@ export function AdminCatalogPage() {
               </table>
             )}
           </div>
+
+          {studentsTotalPages > 1 && (
+            <div className="flex items-center justify-between border-t border-border px-4 py-3 text-xs text-muted">
+              <span>
+                Página <strong className="text-foreground">{studentsPage}</strong> de{' '}
+                <strong className="text-foreground">{studentsTotalPages}</strong> •{' '}
+                {studentsTotal} estudante(s)
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={studentsPage <= 1 || studentsLoading}
+                  onClick={() => setStudentsPage((p) => Math.max(1, p - 1))}
+                  className="inline-flex items-center gap-1 rounded-field border border-border bg-surface-secondary px-3 py-1.5 font-semibold text-foreground hover:bg-default disabled:opacity-45"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  disabled={studentsPage >= studentsTotalPages || studentsLoading}
+                  onClick={() => setStudentsPage((p) => Math.min(studentsTotalPages, p + 1))}
+                  className="inline-flex items-center gap-1 rounded-field border border-border bg-surface-secondary px-3 py-1.5 font-semibold text-foreground hover:bg-default disabled:opacity-45"
+                >
+                  Próxima
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -540,9 +746,98 @@ export function AdminCatalogPage() {
         open={studentModalOpen}
         onClose={() => setStudentModalOpen(false)}
         editingStudent={editingStudent}
+        classRooms={classRooms}
         existingEnrollmentIds={students.map((s) => s.enrollmentId)}
+        onCreateClassRoom={handleCreateClassRoom}
         onSave={handleSaveStudent}
       />
+
+      {/* Modal de exibição única da senha temporária gerada */}
+      <DialogModal
+        open={Boolean(createdCredentials)}
+        onClose={() => setCreatedCredentials(null)}
+        labelledBy="temp-password-modal-title"
+        maxWidthClass="max-w-md"
+        className="p-6"
+      >
+        {createdCredentials && (
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3 border-b border-separator pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-light-green/50 text-shadow-grey">
+                  <KeyRound className="h-4 w-4" />
+                </div>
+                <div>
+                  <h2 id="temp-password-modal-title" className="text-base font-bold text-foreground">
+                    Senha temporária gerada
+                  </h2>
+                  <p className="text-xs text-muted">
+                    Exibida uma única vez para o primeiro acesso do estudante.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreatedCredentials(null)}
+                aria-label="Fechar aviso de senha temporária"
+                className="rounded-md p-1 text-muted hover:bg-default hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1.5 rounded-field border border-border bg-surface-secondary p-3.5 text-xs">
+              <p>
+                <span className="text-muted">Estudante:</span>{' '}
+                <strong className="text-foreground">{createdCredentials.student.name}</strong>
+              </p>
+              <p>
+                <span className="text-muted">Matrícula:</span>{' '}
+                <strong className="tabular-nums text-foreground">
+                  {createdCredentials.student.enrollmentId}
+                </strong>
+              </p>
+              <p>
+                <span className="text-muted">E-mail:</span>{' '}
+                <strong className="text-foreground">{createdCredentials.student.email}</strong>
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 rounded-field border border-shadow-grey/30 bg-background px-3.5 py-2.5">
+              <code className="select-all text-base font-bold tracking-wider text-foreground">
+                {createdCredentials.temporaryPassword}
+              </code>
+              <button
+                type="button"
+                onClick={() => void handleCopyTempPassword()}
+                className="inline-flex items-center gap-1.5 rounded-field bg-shadow-grey px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent hover:text-accent-foreground"
+              >
+                {copiedPassword ? (
+                  <>
+                    <Check className="h-3.5 w-3.5" />
+                    Copiada
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" />
+                    Copiar
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => setCreatedCredentials(null)}
+                className="rounded-field border border-border bg-surface-secondary px-4 py-2 text-xs font-semibold text-foreground hover:bg-default"
+              >
+                Entendi, fechar
+              </button>
+            </div>
+          </div>
+        )}
+      </DialogModal>
 
       {/* Modal de Empréstimos por obra */}
       <DialogModal

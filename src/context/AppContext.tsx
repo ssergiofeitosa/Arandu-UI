@@ -53,6 +53,7 @@ interface AppContextValue {
   addStudent: (payload: NewStudentPayload) => Student
   updateStudent: (studentId: string, payload: Partial<NewStudentPayload>) => void
   toggleStudentStatus: (studentId: string) => void
+  notify: (toast: Omit<ToastItem, 'id'>) => void
   dismissToast: (id: string) => void
 }
 
@@ -436,6 +437,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addStudent,
       updateStudent,
       toggleStudentStatus,
+      notify: pushToast,
       dismissToast,
     }),
     [
@@ -462,6 +464,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addStudent,
       updateStudent,
       toggleStudentStatus,
+      pushToast,
       dismissToast,
     ],
   )

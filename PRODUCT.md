@@ -23,7 +23,7 @@ Plataforma institucional dedicada à escola pública estadual que diferencia cla
 
 ## Operating Context
 
-- Autenticação JWT e RBAC (`ALUNO` / `BIBLIOTECARIO`) + recuperação de senha já integrados ao backend Django (`apps/contas`). Catálogo, empréstimos e gestão de acervo/alunos seguem em migração gradual de `src/data/mockData.ts` para a API REST.
+- Autenticação JWT, RBAC (`ALUNO` / `BIBLIOTECARIO`), recuperação de senha e gestão real de **Alunos e Turmas** já integrados ao backend Django (`apps/contas`). Catálogo, empréstimos e gestão do acervo seguem em migração gradual de `src/data/mockData.ts` para a API REST.
 - Ambiente real de uso inclui dispositivos móveis de entrada, redes escolares com banda limitada e computadores compartilhados da escola.
 
 ## Capabilities and Constraints

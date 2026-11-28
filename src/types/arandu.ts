@@ -109,13 +109,37 @@ export interface ToastItem {
 
 export type SchoolShift = 'Integral' | 'Manhã' | 'Tarde'
 
+export type SchoolShiftCode = 'INTEGRAL' | 'MANHA' | 'TARDE'
+
+export interface PaginatedResponse<T> {
+  count: number
+  total_pages: number
+  current_page: number
+  next: string | null
+  previous: string | null
+  results: T[]
+}
+
+export interface ClassRoom {
+  id: string
+  name: string
+  shiftCode: SchoolShiftCode
+  shift: SchoolShift
+  schoolYear: number
+  active: boolean
+  studentsCount: number
+}
+
 export interface Student {
   id: string
   name: string
   enrollmentId: string
   email: string
+  classRoomId?: string | null
   gradeClass: string
   shift: SchoolShift
+  phone?: string | null
   status: 'ativo' | 'inativo'
+  mustChangePassword?: boolean
   createdAt: string
 }
