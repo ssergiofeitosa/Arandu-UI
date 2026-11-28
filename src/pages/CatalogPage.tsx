@@ -1,38 +1,86 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { BookOpen, Search, X } from 'lucide-react'
+import {
+  AlertCircle,
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  RefreshCw,
+  Search,
+  Star,
+  X,
+} from 'lucide-react'
 import { BookCover } from '@/components/BookCover'
-import { useApp } from '@/context/AppContext'
-import { CATEGORIES } from '@/data/mockData'
-import { cn, getRemainingDays } from '@/lib/utils'
-import type { BookFormat, Category } from '@/types/arandu'
+import { cn } from '@/lib/utils'
+import { ApiError } from '@/services/api'
+import { listCatalogBooks, listCategorias } from '@/services/acervoService'
+import type { Book, BookFormat, CatalogCategory } from '@/types/arandu'
 
 export function CatalogPage() {
-  const { books, getActiveLoan } = useApp()
+  const [categories, setCategories] = useState<CatalogCategory[]>([])
+  const [books, setBooks] = useState<Book[]>([])
+  const [totalBooks, setTotalBooks] = useState(0)
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
   const [query, setQuery] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState<'Todas' | Category>('Todas')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<string>('Todas')
   const [selectedFormat, setSelectedFormat] = useState<'Todos' | BookFormat>('Todos')
 
-  const visibleBooks = useMemo(() => books.filter((b) => b.visible), [books])
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(query.trim())
+      setPage(1)
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [query])
 
-  const filteredBooks = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return visibleBooks.filter((book) => {
-      const matchesCat = selectedCategory === 'Todas' || book.categories.includes(selectedCategory)
-      const matchesFmt = selectedFormat === 'Todos' || book.format === selectedFormat
-      const matchesQuery =
-        !q ||
-        book.title.toLowerCase().includes(q) ||
-        book.author.toLowerCase().includes(q) ||
-        (book.isbn && book.isbn.toLowerCase().includes(q))
-      return matchesCat && matchesFmt && matchesQuery
-    })
-  }, [query, selectedCategory, selectedFormat, visibleBooks])
+  useEffect(() => {
+    listCategorias()
+      .then(setCategories)
+      .catch(() => {
+        // segue sem pílulas se categorias falharem
+      })
+  }, [])
+
+  const loadBooks = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const response = await listCatalogBooks({
+        page,
+        pageSize: 12,
+        search: debouncedQuery || undefined,
+        categoria: selectedCategory !== 'Todas' ? selectedCategory : undefined,
+        formato: selectedFormat !== 'Todos' ? selectedFormat : undefined,
+      })
+      setBooks(response.results)
+      setTotalBooks(response.count)
+      setTotalPages(Math.max(1, response.total_pages))
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : 'Não foi possível carregar o catálogo digital.',
+      )
+    } finally {
+      setLoading(false)
+    }
+  }, [debouncedQuery, page, selectedCategory, selectedFormat])
+
+  useEffect(() => {
+    void loadBooks()
+  }, [loadBooks])
 
   const clearFilters = () => {
     setQuery('')
     setSelectedCategory('Todas')
     setSelectedFormat('Todos')
+    setPage(1)
   }
 
   return (
@@ -45,12 +93,12 @@ export function CatalogPage() {
               Catálogo Digital
             </h1>
             <p className="mt-1 text-sm text-muted">
-              Escolha uma obra para consultar a sinopse, baixar ou ler no navegador.
+              Escolha uma obra para consultar a sinopse, avaliar, baixar ou ler no navegador.
             </p>
           </div>
           <span className="text-xs font-medium text-muted">
-            <strong className="tabular-nums text-foreground">{filteredBooks.length}</strong> obras
-            exibidas
+            <strong className="tabular-nums text-foreground">{totalBooks}</strong>{' '}
+            {totalBooks === 1 ? 'obra encontrada' : 'obras encontradas'}
           </span>
         </div>
 
@@ -89,7 +137,10 @@ export function CatalogPage() {
                 <button
                   key={fmt}
                   type="button"
-                  onClick={() => setSelectedFormat(fmt)}
+                  onClick={() => {
+                    setSelectedFormat(fmt)
+                    setPage(1)
+                  }}
                   aria-pressed={active}
                   className={cn(
                     'rounded-md px-3.5 py-1.5 text-xs font-semibold transition-colors',
@@ -103,15 +154,35 @@ export function CatalogPage() {
           </div>
         </div>
 
-        {/* Pílulas de categoria */}
+        {/* Pílulas de categoria vindas da API */}
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          {(['Todas', ...CATEGORIES] as const).map((cat) => {
-            const active = selectedCategory === cat
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedCategory('Todas')
+              setPage(1)
+            }}
+            aria-pressed={selectedCategory === 'Todas'}
+            className={cn(
+              'rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors',
+              selectedCategory === 'Todas'
+                ? 'border-shadow-grey bg-light-green/60 font-semibold text-shadow-grey'
+                : 'border-border bg-surface text-muted hover:text-foreground',
+            )}
+          >
+            Todas
+          </button>
+
+          {categories.map((cat) => {
+            const active = selectedCategory === cat.id
             return (
               <button
-                key={cat}
+                key={cat.id}
                 type="button"
-                onClick={() => setSelectedCategory(cat)}
+                onClick={() => {
+                  setSelectedCategory(cat.id)
+                  setPage(1)
+                }}
                 aria-pressed={active}
                 className={cn(
                   'rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors',
@@ -120,7 +191,7 @@ export function CatalogPage() {
                     : 'border-border bg-surface text-muted hover:text-foreground',
                 )}
               >
-                {cat}
+                {cat.name}
               </button>
             )
           })}
@@ -128,82 +199,150 @@ export function CatalogPage() {
       </div>
 
       {/* Grid de obras */}
-      {filteredBooks.length === 0 ? (
+      {error ? (
+        <div className="mt-8 flex flex-col items-center gap-3 rounded-lg border border-border bg-surface px-6 py-14 text-center">
+          <AlertCircle className="h-8 w-8 text-watermelon-600" />
+          <h2 className="text-lg font-bold text-foreground">Erro ao carregar catálogo</h2>
+          <p className="text-sm text-muted">{error}</p>
+          <button
+            type="button"
+            onClick={() => void loadBooks()}
+            className="mt-2 inline-flex items-center gap-2 rounded-md border border-border bg-surface-secondary px-4 py-2 text-xs font-semibold text-foreground hover:bg-default"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Tentar novamente
+          </button>
+        </div>
+      ) : loading ? (
+        <div className="mt-10 flex items-center justify-center gap-2.5 py-14 text-sm text-muted">
+          <Loader2 className="h-5 w-5 animate-spin text-brilliant-azure-600" />
+          Carregando obras do acervo...
+        </div>
+      ) : books.length === 0 ? (
         <div className="mt-8 rounded-lg border border-dashed border-border bg-surface px-6 py-14 text-center">
           <BookOpen className="mx-auto h-8 w-8 text-muted" />
           <h2 className="mt-3 text-lg font-bold text-foreground">Nenhuma obra encontrada</h2>
           <p className="mt-1 text-sm text-muted">
-            Tente outro termo ou limpe os filtros para ver todo o acervo.
+            {query || selectedCategory !== 'Todas' || selectedFormat !== 'Todos'
+              ? 'Tente outro termo ou limpe os filtros para ver todo o acervo.'
+              : 'O acervo ainda não possui obras publicadas. Peça ao bibliotecário para cadastrar livros no Painel do Acervo.'}
           </p>
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="mt-5 rounded-md border border-border bg-surface-secondary px-4 py-2 text-xs font-semibold text-foreground hover:bg-default"
-          >
-            Limpar filtros
-          </button>
+          {(query || selectedCategory !== 'Todas' || selectedFormat !== 'Todos') && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="mt-5 rounded-md border border-border bg-surface-secondary px-4 py-2 text-xs font-semibold text-foreground hover:bg-default"
+            >
+              Limpar filtros
+            </button>
+          )}
         </div>
       ) : (
-        <div className="mt-7 grid grid-cols-2 gap-4 sm:gap-6 md:grid-cols-3 lg:grid-cols-4">
-          {filteredBooks.map((book) => {
-            const loan = getActiveLoan(book.id)
-            const daysLeft = loan ? getRemainingDays(loan.dueAt) : 0
+        <>
+          <div className="mt-7 grid grid-cols-2 gap-4 sm:gap-6 md:grid-cols-3 lg:grid-cols-4">
+            {books.map((book) => {
+              const loan = book.myLoan
+              const isAvailable = book.available !== false
 
-            return (
-              <Link
-                key={book.id}
-                to={`/livros/${book.id}`}
-                className="group flex flex-col rounded-lg border border-border bg-surface p-3.5 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md"
-              >
-                <BookCover
-                  title={book.title}
-                  author={book.author}
-                  coverUrl={book.coverUrl}
-                  format={book.format}
-                  tone={book.fallbackTone}
-                  size="md"
-                />
+              return (
+                <Link
+                  key={book.id}
+                  to={`/livros/${book.id}`}
+                  className="group flex flex-col rounded-lg border border-border bg-surface p-3.5 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md"
+                >
+                  <BookCover
+                    title={book.title}
+                    author={book.author}
+                    coverUrl={book.coverUrl}
+                    format={book.format}
+                    tone={book.fallbackTone}
+                    size="md"
+                  />
 
-                <div className="mt-3.5 flex flex-1 flex-col justify-between gap-2.5">
-                  <div>
-                    <p className="truncate text-[11px] font-semibold text-brilliant-azure-700">
-                      {book.categories[0]}
-                    </p>
-                    <h2 className="mt-1 line-clamp-2 text-base font-bold leading-snug text-foreground group-hover:text-brilliant-azure-700">
-                      {book.title}
-                    </h2>
-                    <p className="mt-0.5 line-clamp-1 text-xs text-muted">{book.author}</p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-1.5 border-t border-separator pt-2.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="rounded-xs border border-border bg-surface-secondary px-2 py-0.5 text-[11px] font-bold text-foreground">
-                        {book.format}
-                      </span>
-                      <span className="hidden text-[11px] font-medium text-muted sm:inline">
-                        {book.accessMode === 'public_domain' ? 'Download' : 'Leitor web'}
-                      </span>
+                  <div className="mt-3.5 flex flex-1 flex-col justify-between gap-2.5">
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-[11px] font-semibold text-brilliant-azure-700">
+                          {book.categories[0] || 'Acervo'}
+                        </p>
+                        {typeof book.ratingAvg === 'number' && (
+                          <span className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-semibold tabular-nums text-foreground">
+                            <Star className="h-3 w-3 fill-amber-400 text-amber-500" />
+                            {book.ratingAvg.toFixed(1)}
+                          </span>
+                        )}
+                      </div>
+                      <h2 className="mt-1 line-clamp-2 text-base font-bold leading-snug text-foreground group-hover:text-brilliant-azure-700">
+                        {book.title}
+                      </h2>
+                      <p className="mt-0.5 line-clamp-1 text-xs text-muted">{book.author}</p>
                     </div>
 
-                    {!loan ? (
-                      <span className="rounded-full bg-light-green/55 px-2.5 py-0.5 text-[11px] font-semibold text-shadow-grey">
-                        Disponível
-                      </span>
-                    ) : loan.status === 'atrasado' ? (
-                      <span className="rounded-full bg-watermelon px-2.5 py-0.5 text-[11px] font-semibold text-white">
-                        Atrasado
-                      </span>
-                    ) : (
-                      <span className="rounded-full bg-shadow-grey px-2.5 py-0.5 text-[11px] font-semibold text-white">
-                        Ativo • {daysLeft}d
-                      </span>
-                    )}
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 border-t border-separator pt-2.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="rounded-xs border border-border bg-surface-secondary px-2 py-0.5 text-[11px] font-bold text-foreground">
+                          {book.format}
+                        </span>
+                        <span className="hidden text-[11px] font-medium text-muted sm:inline">
+                          {book.accessMode === 'public_domain' ? 'Download' : 'Leitor web'}
+                        </span>
+                      </div>
+
+                      {loan ? (
+                        loan.status === 'atrasado' ? (
+                          <span className="rounded-full bg-watermelon px-2.5 py-0.5 text-[11px] font-semibold text-white">
+                            Atrasado
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-shadow-grey px-2.5 py-0.5 text-[11px] font-semibold text-white">
+                            Ativo • {Math.max(0, loan.daysLeft)}d
+                          </span>
+                        )
+                      ) : isAvailable ? (
+                        <span className="rounded-full bg-light-green/55 px-2.5 py-0.5 text-[11px] font-semibold text-shadow-grey">
+                          Disponível
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-default px-2.5 py-0.5 text-[11px] font-semibold text-muted">
+                          Indisponível
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </Link>
-            )
-          })}
-        </div>
+                </Link>
+              )
+            })}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="mt-8 flex items-center justify-between rounded-lg border border-border bg-surface px-4 py-3 text-xs text-muted">
+              <span>
+                Página <strong className="text-foreground">{page}</strong> de{' '}
+                <strong className="text-foreground">{totalPages}</strong> • {totalBooks} obra(s)
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1 || loading}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="inline-flex items-center gap-1 rounded-field border border-border bg-surface-secondary px-3 py-1.5 font-semibold text-foreground hover:bg-default disabled:opacity-45"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= totalPages || loading}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  className="inline-flex items-center gap-1 rounded-field border border-border bg-surface-secondary px-3 py-1.5 font-semibold text-foreground hover:bg-default disabled:opacity-45"
+                >
+                  Próxima
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

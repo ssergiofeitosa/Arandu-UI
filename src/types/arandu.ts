@@ -48,12 +48,47 @@ export type BookFormat = 'PDF' | 'EPUB'
 
 export type BookAccessMode = 'public_domain' | 'temporary_loan'
 
-export type Category =
-  | 'Literatura Brasileira'
-  | 'Matemática'
-  | 'História'
-  | 'Redação/ENEM'
-  | 'Ciências'
+export type Category = string
+
+export interface CatalogCategory {
+  id: string
+  name: string
+  slug: string
+  description?: string | null
+  booksCount: number
+}
+
+export interface BookReview {
+  id: string
+  userId: string
+  userName: string
+  userClassRoom: string | null
+  rating: number
+  comment: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface BookUserLoan {
+  id: string
+  status: LoanStatus
+  statusDisplay: string
+  borrowedAt: string
+  dueAt: string
+  daysLeft: number
+  renewals: number
+  canRead: boolean
+}
+
+export interface AdminSummary {
+  totalBooks: number
+  activeBooks: number
+  activeLoans: number
+  overdueLoans: number
+  totalReads: number
+  totalDownloads: number
+  totalStudents: number
+}
 
 export type FallbackTone = 'shadow' | 'azure' | 'peach' | 'green'
 
@@ -62,7 +97,9 @@ export interface Book {
   title: string
   author: string
   isbn?: string
+  categoryId?: string
   categories: Category[]
+  publisherName?: string | null
   format: BookFormat
   accessMode: BookAccessMode
   fileSize: string
@@ -75,6 +112,18 @@ export interface Book {
   downloadsCount: number
   coverUrl?: string
   fallbackTone?: FallbackTone
+  quantityTotal?: number
+  quantityAvailable?: number
+  available?: boolean
+  hasFile?: boolean
+  hasPdf?: boolean
+  canRead?: boolean
+  canDownload?: boolean
+  ratingAvg?: number | null
+  reviewsCount?: number
+  activeLoansCount?: number
+  myLoan?: BookUserLoan | null
+  myReview?: BookReview | null
 }
 
 export type LoanStatus = 'ativo' | 'atrasado' | 'devolvido'

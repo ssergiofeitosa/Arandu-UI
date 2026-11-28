@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   AlertCircle,
   BookCopy,
@@ -26,10 +26,19 @@ import { BookCover } from '@/components/BookCover'
 import { BookFormModal } from '@/components/admin/BookFormModal'
 import { StudentFormModal } from '@/components/admin/StudentFormModal'
 import { DialogModal } from '@/components/ui/DialogModal'
-import { useApp, type NewBookPayload } from '@/context/AppContext'
-import { CATEGORIES } from '@/data/mockData'
+import { useApp } from '@/context/AppContext'
 import { cn, formatDateBR } from '@/lib/utils'
 import { ApiError } from '@/services/api'
+import {
+  createAdminBook,
+  createCategoria,
+  getAdminSummary,
+  listAdminBooks,
+  listCategorias,
+  toggleAdminBookVisibility,
+  updateAdminBook,
+  type SaveAdminBookInput,
+} from '@/services/acervoService'
 import {
   createAluno,
   createTurma,
@@ -39,7 +48,14 @@ import {
   type CreateAlunoInput,
   type UpdateAlunoInput,
 } from '@/services/gestaoContasService'
-import type { Book, ClassRoom, SchoolShiftCode, Student } from '@/types/arandu'
+import type {
+  AdminSummary,
+  Book,
+  CatalogCategory,
+  ClassRoom,
+  SchoolShiftCode,
+  Student,
+} from '@/types/arandu'
 
 type AdminTab = 'books' | 'students'
 
@@ -51,19 +67,23 @@ function getInitials(name: string): string {
 }
 
 export function AdminCatalogPage() {
-  const {
-    user,
-    can,
-    books,
-    schoolLoans,
-    addBook,
-    updateBook,
-    toggleBookVisibility,
-    notify,
-  } = useApp()
+  const { user, can, schoolLoans, notify } = useApp()
 
   const [activeTab, setActiveTab] = useState<AdminTab>('books')
+  const [summary, setSummary] = useState<AdminSummary | null>(null)
+
+  // Estado real da API para Acervo e Categorias (Épico 3)
+  const [categories, setCategories] = useState<CatalogCategory[]>([])
+  const [books, setBooks] = useState<Book[]>([])
+  const [booksTotal, setBooksTotal] = useState(0)
+  const [booksPage, setBooksPage] = useState(1)
+  const [booksTotalPages, setBooksTotalPages] = useState(1)
+  const [booksLoading, setBooksLoading] = useState(true)
+  const [booksError, setBooksError] = useState('')
+  const [togglingBookId, setTogglingBookId] = useState<string | null>(null)
+
   const [query, setQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('Todas')
   const [modalOpen, setModalOpen] = useState(false)
   const [editingBook, setEditingBook] = useState<Book | null>(null)
@@ -92,11 +112,61 @@ export function AdminCatalogPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      setDebouncedQuery(query.trim())
+      setBooksPage(1)
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [query])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
       setDebouncedStudentQuery(studentQuery.trim())
       setStudentsPage(1)
     }, 250)
     return () => window.clearTimeout(timer)
   }, [studentQuery])
+
+  const loadSummary = useCallback(async () => {
+    if (!can('admin:panel')) return
+    try {
+      const data = await getAdminSummary()
+      setSummary(data)
+    } catch {
+      // KPIs continuam com fallback dos totais carregados
+    }
+  }, [can])
+
+  const loadCategories = useCallback(async () => {
+    try {
+      const data = await listCategorias()
+      setCategories(data)
+    } catch {
+      // fallback silencioso
+    }
+  }, [])
+
+  const loadBooks = useCallback(async () => {
+    if (!can('admin:books')) return
+    setBooksLoading(true)
+    setBooksError('')
+    try {
+      const response = await listAdminBooks({
+        page: booksPage,
+        pageSize: 12,
+        search: debouncedQuery || undefined,
+        categoria: categoryFilter !== 'Todas' ? categoryFilter : undefined,
+      })
+      setBooks(response.results)
+      setBooksTotal(response.count)
+      setBooksTotalPages(Math.max(1, response.total_pages))
+    } catch (err) {
+      setBooksError(
+        err instanceof ApiError ? err.message : 'Não foi possível carregar o acervo da API.',
+      )
+    } finally {
+      setBooksLoading(false)
+    }
+  }, [booksPage, can, categoryFilter, debouncedQuery])
 
   const loadTurmas = useCallback(async () => {
     if (!can('admin:classes')) return
@@ -134,37 +204,82 @@ export function AdminCatalogPage() {
   }, [can, classRoomFilter, debouncedStudentQuery, studentsPage])
 
   useEffect(() => {
+    void loadSummary()
+    void loadCategories()
     void loadTurmas()
-  }, [loadTurmas])
+  }, [loadCategories, loadSummary, loadTurmas])
+
+  useEffect(() => {
+    void loadBooks()
+  }, [loadBooks])
 
   useEffect(() => {
     void loadAlunos()
   }, [loadAlunos])
 
-  const totalBooks = books.length
-  const activeLoansTotal = schoolLoans.filter((l) => l.status === 'ativo').length
-  const overdueTotal = schoolLoans.filter((l) => l.status === 'atrasado').length
-  const totalStudents = studentsTotal
+  const totalBooks = summary?.totalBooks ?? booksTotal
+  const activeLoansTotal = summary?.activeLoans ?? 0
+  const overdueTotal = summary?.overdueLoans ?? 0
+  const totalStudents = summary?.totalStudents ?? studentsTotal
 
-  const filteredBooks = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return books.filter((book) => {
-      const matchesQuery =
-        !q ||
-        book.title.toLowerCase().includes(q) ||
-        book.author.toLowerCase().includes(q)
-      const matchesCat =
-        categoryFilter === 'Todas' ||
-        book.categories.includes(categoryFilter as Book['categories'][number])
-      return matchesQuery && matchesCat
+  const handleCreateCategory = async (name: string): Promise<CatalogCategory> => {
+    const created = await createCategoria(name)
+    setCategories((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
+    notify({
+      title: 'Categoria criada',
+      description: created.name,
+      variant: 'success',
     })
-  }, [books, categoryFilter, query])
+    return created
+  }
 
-  const handleSave = (payload: NewBookPayload, editingId?: string) => {
+  const handleSaveBook = async (payload: SaveAdminBookInput, editingId?: string) => {
     if (editingId) {
-      updateBook(editingId, payload)
+      const updated = await updateAdminBook(editingId, payload)
+      setBooks((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+      notify({
+        title: 'Obra atualizada',
+        description: `"${updated.title}" salva no acervo.`,
+        variant: 'success',
+      })
     } else {
-      addBook(payload)
+      const created = await createAdminBook(payload)
+      setActiveTab('books')
+      notify({
+        title: 'Obra publicada no acervo',
+        description: `"${created.title}" cadastrada no PostgreSQL.`,
+        variant: 'success',
+      })
+      await Promise.all([loadBooks(), loadSummary()])
+    }
+  }
+
+  const handleToggleBookVisibility = async (book: Book) => {
+    const nextVisible = !book.visible
+    setTogglingBookId(book.id)
+    try {
+      const updated = await toggleAdminBookVisibility(book.id, nextVisible)
+      setBooks((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+      void loadSummary()
+      notify({
+        title: nextVisible ? 'Obra visível no catálogo' : 'Obra ocultada do catálogo',
+        description: updated.title,
+        actionLabel: 'Desfazer',
+        onAction: () => {
+          void toggleAdminBookVisibility(book.id, !nextVisible).then((reverted) => {
+            setBooks((prev) => prev.map((item) => (item.id === reverted.id ? reverted : item)))
+            void loadSummary()
+          })
+        },
+      })
+    } catch (err) {
+      notify({
+        title: 'Erro ao atualizar obra',
+        description:
+          err instanceof ApiError ? err.message : 'Não foi possível alterar a visibilidade.',
+      })
+    } finally {
+      setTogglingBookId(null)
     }
   }
 
@@ -342,7 +457,7 @@ export function AdminCatalogPage() {
             <BookCopy className="h-4 w-4" />
             Acervo Digital
             <span className="rounded-full bg-default px-2 py-0.5 text-[11px] font-bold tabular-nums text-foreground">
-              {books.length}
+              {booksTotal}
             </span>
           </button>
 
@@ -385,140 +500,211 @@ export function AdminCatalogPage() {
 
             <select
               value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
+              onChange={(e) => {
+                setCategoryFilter(e.target.value)
+                setBooksPage(1)
+              }}
               aria-label="Filtrar por categoria"
               className="h-10 rounded-field border border-border bg-background px-3 text-sm leading-normal text-foreground focus-visible:outline-focus"
             >
               <option value="Todas">Todas as categorias</option>
-              {CATEGORIES.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.name}
                 </option>
               ))}
             </select>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-border bg-surface-secondary text-xs uppercase tracking-wider text-muted">
-                <tr>
-                  <th className="px-4 py-3 font-semibold">Obra</th>
-                  <th className="px-4 py-3 font-semibold">Categorias</th>
-                  <th className="px-4 py-3 font-semibold">Acesso / Formato</th>
-                  <th className="px-4 py-3 font-semibold">Acessos</th>
-                  <th className="px-4 py-3 font-semibold">Status</th>
-                  <th className="px-4 py-3 text-right font-semibold">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-separator">
-                {filteredBooks.map((book) => {
-                  const activeCount = schoolLoans.filter(
-                    (l) => l.bookId === book.id && l.status !== 'devolvido',
-                  ).length
+            {booksError ? (
+              <div className="flex flex-col items-center gap-3 p-10 text-center">
+                <AlertCircle className="h-6 w-6 text-watermelon-600" />
+                <p className="text-sm font-medium text-foreground">{booksError}</p>
+                <button
+                  type="button"
+                  onClick={() => void loadBooks()}
+                  className="inline-flex items-center gap-1.5 rounded-field border border-border bg-surface-secondary px-4 py-1.5 text-xs font-semibold text-foreground hover:bg-default"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Tentar novamente
+                </button>
+              </div>
+            ) : booksLoading ? (
+              <div className="flex items-center justify-center gap-2.5 p-10 text-sm text-muted">
+                <Loader2 className="h-4 w-4 animate-spin text-brilliant-azure-600" />
+                Carregando acervo...
+              </div>
+            ) : books.length === 0 ? (
+              <div className="p-10 text-center">
+                <p className="text-sm font-medium text-foreground">
+                  Nenhuma obra encontrada no acervo.
+                </p>
+                <p className="mt-1 text-xs text-muted">
+                  Clique em <strong>Adicionar Livro Digital</strong> para cadastrar o primeiro título.
+                </p>
+              </div>
+            ) : (
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-border bg-surface-secondary text-xs uppercase tracking-wider text-muted">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold">Obra</th>
+                    <th className="px-4 py-3 font-semibold">Categoria</th>
+                    <th className="px-4 py-3 font-semibold">Acesso / Formato</th>
+                    <th className="px-4 py-3 font-semibold">Licenças / Acessos</th>
+                    <th className="px-4 py-3 font-semibold">Status</th>
+                    <th className="px-4 py-3 text-right font-semibold">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-separator">
+                  {books.map((book) => {
+                    const activeCount = book.activeLoansCount ?? 0
+                    const isToggling = togglingBookId === book.id
 
-                  return (
-                    <tr key={book.id} className="hover:bg-surface-secondary/50">
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 shrink-0">
-                            <BookCover
-                              title={book.title}
-                              author={book.author}
-                              coverUrl={book.coverUrl}
-                              format={book.format}
-                              tone={book.fallbackTone}
-                              size="xs"
-                            />
+                    return (
+                      <tr key={book.id} className="hover:bg-surface-secondary/50">
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 shrink-0">
+                              <BookCover
+                                title={book.title}
+                                author={book.author}
+                                coverUrl={book.coverUrl}
+                                format={book.format}
+                                tone={book.fallbackTone}
+                                size="xs"
+                              />
+                            </div>
+                            <div className="min-w-0 max-w-[220px]">
+                              <p className="truncate font-bold text-foreground">{book.title}</p>
+                              <p className="truncate text-xs text-muted">{book.author}</p>
+                            </div>
                           </div>
-                          <div className="min-w-0 max-w-[220px]">
-                            <p className="truncate font-bold text-foreground">{book.title}</p>
-                            <p className="truncate text-xs text-muted">{book.author}</p>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="flex flex-wrap gap-1">
+                            {book.categories.map((cat) => (
+                              <span
+                                key={cat}
+                                className="whitespace-nowrap rounded-full border border-border bg-surface-secondary px-2.5 py-0.5 text-[11px] font-medium text-foreground"
+                              >
+                                {cat}
+                              </span>
+                            ))}
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex flex-wrap gap-1">
-                          {book.categories.map((cat) => (
-                            <span
-                              key={cat}
-                              className="whitespace-nowrap rounded-full border border-border bg-surface-secondary px-2.5 py-0.5 text-[11px] font-medium text-foreground"
-                            >
-                              {cat}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="rounded-xs border border-border bg-surface-secondary px-2 py-0.5 text-[11px] font-bold text-foreground">
+                              {book.format}
                             </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="rounded-xs border border-border bg-surface-secondary px-2 py-0.5 text-[11px] font-bold text-foreground">
-                            {book.format}
+                            <span className="whitespace-nowrap text-xs text-muted">
+                              {book.accessMode === 'public_domain'
+                                ? 'Domínio público'
+                                : 'Aluguel (web)'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-xs tabular-nums text-foreground">
+                          <span className="font-semibold">
+                            {book.accessMode === 'public_domain'
+                              ? 'Livre'
+                              : `${book.quantityAvailable ?? 0}/${book.quantityTotal ?? 1}`}
                           </span>
-                          <span className="whitespace-nowrap text-xs text-muted">
-                            {book.accessMode === 'public_domain' ? 'Domínio público' : 'Leitor web'}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5 font-semibold tabular-nums text-foreground">
-                        {book.downloadsCount}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <span
-                          className={cn(
-                            'rounded-full px-2.5 py-0.5 text-[11px] font-semibold',
-                            book.visible
-                              ? 'bg-light-green/65 text-shadow-grey'
-                              : 'bg-default text-muted',
-                          )}
-                        >
-                          {book.visible ? 'Visível' : 'Oculto'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3.5 text-right">
-                        <div className="inline-flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingBook(book)
-                              setModalOpen(true)
-                            }}
-                            className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-default"
-                          >
-                            <Edit3 className="h-3.5 w-3.5" />
-                            Editar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleBookVisibility(book.id)}
-                            className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-default"
-                          >
-                            {book.visible ? (
-                              <>
-                                <EyeOff className="h-3.5 w-3.5" />
-                                Ocultar
-                              </>
-                            ) : (
-                              <>
-                                <Eye className="h-3.5 w-3.5" />
-                                Ativar
-                              </>
+                          <span className="ml-2 text-muted">• {book.downloadsCount} acessos</span>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <span
+                            className={cn(
+                              'rounded-full px-2.5 py-0.5 text-[11px] font-semibold',
+                              book.visible
+                                ? 'bg-light-green/65 text-shadow-grey'
+                                : 'bg-default text-muted',
                             )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setLoansBook(book)}
-                            className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-semibold text-foreground hover:bg-surface-secondary"
                           >
-                            <Users className="h-3.5 w-3.5" />
-                            Empréstimos ({activeCount})
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                            {book.visible ? 'Visível' : 'Oculto'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 text-right">
+                          <div className="inline-flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingBook(book)
+                                setModalOpen(true)
+                              }}
+                              className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-default"
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isToggling}
+                              onClick={() => void handleToggleBookVisibility(book)}
+                              className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-default disabled:opacity-50"
+                            >
+                              {isToggling ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : book.visible ? (
+                                <>
+                                  <EyeOff className="h-3.5 w-3.5" />
+                                  Ocultar
+                                </>
+                              ) : (
+                                <>
+                                  <Eye className="h-3.5 w-3.5" />
+                                  Ativar
+                                </>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setLoansBook(book)}
+                              className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-semibold text-foreground hover:bg-surface-secondary"
+                            >
+                              <Users className="h-3.5 w-3.5" />
+                              Empréstimos ({activeCount})
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
+
+          {booksTotalPages > 1 && (
+            <div className="flex items-center justify-between border-t border-border px-4 py-3 text-xs text-muted">
+              <span>
+                Página <strong className="text-foreground">{booksPage}</strong> de{' '}
+                <strong className="text-foreground">{booksTotalPages}</strong> • {booksTotal}{' '}
+                obra(s)
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={booksPage <= 1 || booksLoading}
+                  onClick={() => setBooksPage((p) => Math.max(1, p - 1))}
+                  className="inline-flex items-center gap-1 rounded-field border border-border bg-surface-secondary px-3 py-1.5 font-semibold text-foreground hover:bg-default disabled:opacity-45"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  disabled={booksPage >= booksTotalPages || booksLoading}
+                  onClick={() => setBooksPage((p) => Math.min(booksTotalPages, p + 1))}
+                  className="inline-flex items-center gap-1 rounded-field border border-border bg-surface-secondary px-3 py-1.5 font-semibold text-foreground hover:bg-default disabled:opacity-45"
+                >
+                  Próxima
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="mt-4 rounded-lg border border-border bg-surface">
@@ -738,7 +924,9 @@ export function AdminCatalogPage() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         editingBook={editingBook}
-        onSave={handleSave}
+        categories={categories}
+        onCreateCategory={handleCreateCategory}
+        onSave={handleSaveBook}
       />
 
       {/* Modal de Cadastro / Edição de Aluno */}

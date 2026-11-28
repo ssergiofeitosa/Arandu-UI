@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
+  AlertCircle,
   ArrowLeft,
   BookOpen,
   CalendarClock,
@@ -8,29 +9,155 @@ import {
   Download,
   Globe,
   GraduationCap,
+  Loader2,
+  MessageSquare,
   RotateCcw,
   Smartphone,
+  Star,
 } from 'lucide-react'
 import { BookCover } from '@/components/BookCover'
 import { WebReaderModal } from '@/components/WebReaderModal'
 import { useApp } from '@/context/AppContext'
-import { formatDateBR, getRemainingDays } from '@/lib/utils'
+import { cn, formatDateBR } from '@/lib/utils'
+import { ApiError } from '@/services/api'
+import {
+  getCatalogBook,
+  listBookReviews,
+  submitBookReview,
+} from '@/services/acervoService'
+import type { Book, BookReview } from '@/types/arandu'
 
 export function BookDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { books, getActiveLoan, borrowBook, returnBook, downloadBook } = useApp()
+  const { notify } = useApp()
+
+  const [book, setBook] = useState<Book | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [notFound, setNotFound] = useState(false)
+  const [error, setError] = useState('')
   const [readerOpen, setReaderOpen] = useState(false)
 
-  const book = books.find((b) => b.id === id)
+  // Avaliações reais (/api/livros/<uuid>/avaliacoes/)
+  const [reviews, setReviews] = useState<BookReview[]>([])
+  const [reviewsTotal, setReviewsTotal] = useState(0)
+  const [reviewsLoading, setReviewsLoading] = useState(false)
+  const [myRating, setMyRating] = useState(0)
+  const [myComment, setMyComment] = useState('')
+  const [submittingReview, setSubmittingReview] = useState(false)
+  const [reviewError, setReviewError] = useState('')
 
-  if (!book) {
+  const loadBookAndReviews = useCallback(async () => {
+    if (!id) {
+      setNotFound(true)
+      setLoading(false)
+      return
+    }
+
+    setLoading(true)
+    setNotFound(false)
+    setError('')
+    try {
+      const [bookData, reviewsData] = await Promise.all([
+        getCatalogBook(id),
+        listBookReviews(id, 1),
+      ])
+      setBook(bookData)
+      setReviews(reviewsData.results)
+      setReviewsTotal(reviewsData.count)
+      if (bookData.myReview) {
+        setMyRating(bookData.myReview.rating)
+        setMyComment(bookData.myReview.comment || '')
+      } else {
+        setMyRating(0)
+        setMyComment('')
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        setNotFound(true)
+      } else {
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : 'Não foi possível carregar os detalhes desta obra.',
+        )
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [id])
+
+  useEffect(() => {
+    void loadBookAndReviews()
+  }, [loadBookAndReviews])
+
+  const handleReviewSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!book) return
+    if (myRating < 1 || myRating > 5) {
+      setReviewError('Selecione uma nota de 1 a 5 estrelas.')
+      return
+    }
+
+    setReviewError('')
+    setSubmittingReview(true)
+    try {
+      await submitBookReview(book.id, myRating, myComment)
+      notify({
+        title: book.myReview ? 'Avaliação atualizada' : 'Avaliação publicada',
+        description: `Você avaliou "${book.title}" com ${myRating}/5.`,
+        variant: 'success',
+      })
+      setReviewsLoading(true)
+      const [freshBook, freshReviews] = await Promise.all([
+        getCatalogBook(book.id),
+        listBookReviews(book.id, 1),
+      ])
+      setBook(freshBook)
+      setReviews(freshReviews.results)
+      setReviewsTotal(freshReviews.count)
+    } catch (err) {
+      setReviewError(
+        err instanceof ApiError
+          ? err.message
+          : 'Não foi possível salvar sua avaliação agora.',
+      )
+    } finally {
+      setSubmittingReview(false)
+      setReviewsLoading(false)
+    }
+  }
+
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1)
+    } else {
+      navigate('/catalogo')
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="mx-auto flex max-w-4xl items-center justify-center gap-2.5 px-5 py-24 text-sm text-muted">
+        <Loader2 className="h-5 w-5 animate-spin text-brilliant-azure-600" />
+        Carregando detalhes da obra...
+      </div>
+    )
+  }
+
+  if (notFound || !book) {
     return (
       <div className="mx-auto max-w-2xl px-5 py-16 text-center">
-        <BookOpen className="mx-auto h-10 w-10 text-muted" />
-        <h1 className="mt-4 text-2xl font-bold text-foreground">Obra não encontrada</h1>
+        {error ? (
+          <AlertCircle className="mx-auto h-10 w-10 text-watermelon-600" />
+        ) : (
+          <BookOpen className="mx-auto h-10 w-10 text-muted" />
+        )}
+        <h1 className="mt-4 text-2xl font-bold text-foreground">
+          {error ? 'Erro ao carregar obra' : 'Obra não encontrada'}
+        </h1>
         <p className="mt-2 text-sm text-muted">
-          Este livro não está disponível no acervo ou foi removido.
+          {error || 'Este livro não está disponível no acervo ou foi ocultado.'}
         </p>
         <Link
           to="/catalogo"
@@ -42,17 +169,9 @@ export function BookDetailPage() {
     )
   }
 
-  const activeLoan = getActiveLoan(book.id)
-  const remainingDays = activeLoan ? getRemainingDays(activeLoan.dueAt) : 0
+  const activeLoan = book.myLoan
   const isPublicDomain = book.accessMode === 'public_domain'
-
-  const handleBack = () => {
-    if (window.history.length > 1) {
-      navigate(-1)
-    } else {
-      navigate('/catalogo')
-    }
-  }
+  const isAvailable = book.available !== false
 
   return (
     <div className="mx-auto max-w-6xl px-5 py-8 sm:px-6 sm:py-10 lg:px-10">
@@ -66,9 +185,9 @@ export function BookDetailPage() {
       </button>
 
       <div className="grid gap-8 lg:grid-cols-12">
-        {/* Informações principais e Card de Leitura/Empréstimo (primeiro no mobile) */}
+        {/* Informações principais e Card de Leitura/Empréstimo */}
         <div className="order-1 min-w-0 lg:order-2 lg:col-span-8 lg:col-start-5">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {book.categories.map((cat) => (
               <span
                 key={cat}
@@ -77,6 +196,12 @@ export function BookDetailPage() {
                 {cat}
               </span>
             ))}
+            {typeof book.ratingAvg === 'number' && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-3 py-1 text-xs font-semibold tabular-nums text-foreground">
+                <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-500" />
+                {book.ratingAvg.toFixed(1)} ({book.reviewsCount ?? 0})
+              </span>
+            )}
           </div>
 
           <h1 className="mt-4 text-3xl font-bold leading-tight tracking-tight text-foreground sm:text-4xl">
@@ -92,25 +217,45 @@ export function BookDetailPage() {
                   <div>
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-light-green/60 px-3 py-1 text-xs font-semibold text-shadow-grey">
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      Domínio Público • Download livre
+                      Domínio Público • Download direto
                     </span>
                     <h2 className="mt-2.5 text-lg font-bold text-foreground">
                       Baixe esta obra gratuitamente
                     </h2>
                     <p className="mt-1 text-sm text-muted">
                       Arquivo em <strong className="text-foreground">{book.format}</strong> (
-                      {book.fileSize}) pronto para leitura offline no celular ou computador.
+                      {book.fileSize}) pronto para leitura offline, sem precisar de empréstimo.
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => downloadBook(book.id)}
-                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-field bg-shadow-grey px-5 py-3 text-sm font-semibold text-white transition-colors duration-200 hover:bg-accent hover:text-accent-foreground focus-visible:outline-focus"
-                  >
-                    <Download className="h-4 w-4" />
-                    Baixar {book.format} ({book.fileSize})
-                  </button>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={!book.hasFile}
+                      onClick={() =>
+                        notify({
+                          title: 'Endpoint de download em breve',
+                          description:
+                            'O download protegido autenticado (/download/) será conectado na próxima etapa.',
+                        })
+                      }
+                      className="inline-flex items-center justify-center gap-2 rounded-field bg-shadow-grey px-5 py-3 text-sm font-semibold text-white transition-colors duration-200 hover:bg-accent hover:text-accent-foreground focus-visible:outline-focus disabled:opacity-50"
+                    >
+                      <Download className="h-4 w-4" />
+                      {book.hasFile ? `Baixar ${book.format}` : 'Arquivo não anexado'}
+                    </button>
+
+                    {book.canRead && (
+                      <button
+                        type="button"
+                        onClick={() => setReaderOpen(true)}
+                        className="inline-flex items-center justify-center gap-2 rounded-field border border-border bg-surface-secondary px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-default"
+                      >
+                        <BookOpen className="h-4 w-4" />
+                        Ler online
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Dica prática de apps gratuitos após baixar */}
@@ -133,21 +278,31 @@ export function BookDetailPage() {
                 <div>
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-brilliant-azure-50 px-3 py-1 text-xs font-semibold text-brilliant-azure-800">
                     <Globe className="h-3.5 w-3.5" />
-                    Aluguel Temporário • Leitura no navegador
+                    Aluguel Temporário • Leitura em PDF no navegador
                   </span>
                   <h2 className="mt-2.5 text-lg font-bold text-foreground">
-                    Solicite o empréstimo para ler online
+                    {isAvailable
+                      ? 'Solicite o empréstimo para ler online'
+                      : 'Sem exemplares disponíveis no momento'}
                   </h2>
                   <p className="mt-1 text-sm text-muted">
-                    Acesso temporário protegido direto no navegador, sem precisar baixar arquivos
-                    nem instalar outros aplicativos.
+                    {isAvailable
+                      ? `Exemplares disponíveis agora: ${book.quantityAvailable ?? 0} de ${book.quantityTotal ?? 1}.`
+                      : 'Todos os exemplares digitais desta obra estão emprestados.'}
                   </p>
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => borrowBook(book.id)}
-                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-field bg-shadow-grey px-5 py-3 text-sm font-semibold text-white transition-colors duration-200 hover:bg-accent hover:text-accent-foreground focus-visible:outline-focus"
+                  disabled={!isAvailable}
+                  onClick={() =>
+                    notify({
+                      title: 'Empréstimos ACID em breve',
+                      description:
+                        'O fluxo real de empréstimo (/api/emprestimos/) entra na próxima etapa (Épico 4).',
+                    })
+                  }
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-field bg-shadow-grey px-5 py-3 text-sm font-semibold text-white transition-colors duration-200 hover:bg-accent hover:text-accent-foreground focus-visible:outline-focus disabled:opacity-50"
                 >
                   <BookOpen className="h-4 w-4" />
                   Solicitar Empréstimo Temporário
@@ -161,11 +316,11 @@ export function BookDetailPage() {
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-light-green/70 px-3 py-1 text-xs font-bold text-shadow-grey">
                         <CheckCircle2 className="h-3.5 w-3.5" />
                         Empréstimo Ativo •{' '}
-                        {remainingDays === 1
+                        {activeLoan.daysLeft === 1
                           ? 'Resta 1 dia'
-                          : remainingDays <= 0
+                          : activeLoan.daysLeft <= 0
                             ? 'Vence hoje'
-                            : `Restam ${remainingDays} dias`}
+                            : `Restam ${activeLoan.daysLeft} dias`}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-watermelon px-3 py-1 text-xs font-bold text-white">
@@ -188,24 +343,25 @@ export function BookDetailPage() {
                   </Link>
                 </div>
 
-                <p className="mt-3 text-sm text-muted">
-                  Esta edição tem aluguel temporário: a leitura fica disponível diretamente pelo
-                  leitor web do navegador enquanto o empréstimo estiver ativo.
-                </p>
-
                 <div className="mt-5 flex flex-wrap gap-3">
                   <button
                     type="button"
+                    disabled={!book.canRead}
                     onClick={() => setReaderOpen(true)}
-                    className="inline-flex items-center gap-2 rounded-field bg-shadow-grey px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-focus"
+                    className="inline-flex items-center gap-2 rounded-field bg-shadow-grey px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
                   >
                     <BookOpen className="h-4 w-4" />
                     Ler no navegador
                   </button>
                   <button
                     type="button"
-                    onClick={() => returnBook(activeLoan.id)}
-                    className="inline-flex items-center gap-2 rounded-field border border-border bg-surface-secondary px-5 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-default focus-visible:outline-focus"
+                    onClick={() =>
+                      notify({
+                        title: 'Devolução ACID em breve',
+                        description: 'A devolução via API entra junto com o Épico 4.',
+                      })
+                    }
+                    className="inline-flex items-center gap-2 rounded-field border border-border bg-surface-secondary px-5 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-default"
                   >
                     <RotateCcw className="h-4 w-4" />
                     Devolver agora
@@ -225,7 +381,7 @@ export function BookDetailPage() {
             </div>
           </div>
 
-          {/* Professor curador */}
+          {/* Curador */}
           <div className="mt-7 flex items-center gap-3.5 rounded-lg border border-border bg-surface-secondary p-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-shadow-grey text-white">
               <GraduationCap className="h-5 w-5" />
@@ -235,6 +391,136 @@ export function BookDetailPage() {
               <p className="text-sm font-bold text-foreground">{book.curatorName}</p>
             </div>
           </div>
+
+          {/* Seção real de Avaliações */}
+          <section aria-labelledby="reviews-heading" className="mt-8 rounded-lg border border-border bg-surface p-5 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-separator pb-4">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-4 w-4 text-brilliant-azure-600" />
+                <h2 id="reviews-heading" className="text-lg font-bold text-foreground">
+                  Avaliações dos leitores ({reviewsTotal})
+                </h2>
+              </div>
+              {typeof book.ratingAvg === 'number' && (
+                <span className="inline-flex items-center gap-1 text-sm font-bold tabular-nums text-foreground">
+                  <Star className="h-4 w-4 fill-amber-400 text-amber-500" />
+                  {book.ratingAvg.toFixed(1)} / 5
+                </span>
+              )}
+            </div>
+
+            {/* Formulário de avaliação */}
+            <form onSubmit={handleReviewSubmit} className="mt-4 space-y-3 rounded-field border border-border bg-surface-secondary p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-foreground">
+                  {book.myReview ? 'Atualize sua avaliação' : 'Deixe sua avaliação'}
+                </span>
+                <div role="group" aria-label="Nota de 1 a 5 estrelas" className="flex items-center gap-1">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => {
+                        setMyRating(star)
+                        if (reviewError) setReviewError('')
+                      }}
+                      aria-label={`Nota ${star} de 5`}
+                      aria-pressed={myRating === star}
+                      className="rounded p-1 transition-transform hover:scale-110 focus-visible:outline-focus"
+                    >
+                      <Star
+                        className={cn(
+                          'h-5 w-5',
+                          star <= myRating
+                            ? 'fill-amber-400 text-amber-500'
+                            : 'text-muted',
+                        )}
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <textarea
+                rows={2}
+                value={myComment}
+                onChange={(e) => setMyComment(e.target.value)}
+                placeholder="O que você achou desta leitura? (opcional)"
+                aria-label="Comentário da avaliação"
+                className="w-full rounded-field border border-border bg-background p-2.5 text-sm text-foreground placeholder:text-field-placeholder focus-visible:outline-focus"
+              />
+
+              {reviewError && (
+                <p role="alert" className="text-xs font-medium text-watermelon-700">
+                  {reviewError}
+                </p>
+              )}
+
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={submittingReview}
+                  className="inline-flex items-center gap-2 rounded-field bg-shadow-grey px-4 py-2 text-xs font-semibold text-white hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
+                >
+                  {submittingReview && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {book.myReview ? 'Atualizar avaliação' : 'Enviar avaliação'}
+                </button>
+              </div>
+            </form>
+
+            {/* Lista de avaliações */}
+            <div className="mt-4 space-y-3">
+              {reviewsLoading ? (
+                <div className="flex items-center gap-2 py-4 text-xs text-muted">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Atualizando avaliações...
+                </div>
+              ) : reviews.length === 0 ? (
+                <p className="py-4 text-center text-xs text-muted">
+                  Nenhuma avaliação ainda. Seja o primeiro a avaliar esta obra!
+                </p>
+              ) : (
+                reviews.map((review) => (
+                  <article
+                    key={review.id}
+                    className="rounded-field border border-border bg-background p-3.5"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-bold text-foreground">
+                          {review.userName}
+                          {review.userClassRoom && (
+                            <span className="ml-1.5 font-normal text-muted">
+                              • {review.userClassRoom}
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-[11px] text-muted">{formatDateBR(review.createdAt)}</p>
+                      </div>
+                      <div className="inline-flex items-center gap-0.5">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <Star
+                            key={star}
+                            className={cn(
+                              'h-3.5 w-3.5',
+                              star <= review.rating
+                                ? 'fill-amber-400 text-amber-500'
+                                : 'text-border',
+                            )}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    {review.comment && (
+                      <p className="mt-2 text-sm leading-relaxed text-foreground">
+                        {review.comment}
+                      </p>
+                    )}
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
         </div>
 
         {/* Capa 2:3 e ficha técnica */}
@@ -271,14 +557,24 @@ export function BookDetailPage() {
                 <dt className="text-muted">Tamanho</dt>
                 <dd className="font-medium tabular-nums text-foreground">{book.fileSize}</dd>
               </div>
-              <div className="flex items-center justify-between border-b border-separator pb-2">
-                <dt className="text-muted">Páginas</dt>
-                <dd className="font-medium tabular-nums text-foreground">{book.pages} págs.</dd>
-              </div>
+              {!isPublicDomain && (
+                <div className="flex items-center justify-between border-b border-separator pb-2">
+                  <dt className="text-muted">Disponíveis</dt>
+                  <dd className="font-medium tabular-nums text-foreground">
+                    {book.quantityAvailable ?? 0} / {book.quantityTotal ?? 1}
+                  </dd>
+                </div>
+              )}
               <div className="flex items-center justify-between border-b border-separator pb-2">
                 <dt className="text-muted">Ano</dt>
                 <dd className="font-medium tabular-nums text-foreground">{book.year}</dd>
               </div>
+              {book.publisherName && (
+                <div className="flex items-center justify-between border-b border-separator pb-2">
+                  <dt className="text-muted">Editora</dt>
+                  <dd className="text-xs font-medium text-foreground">{book.publisherName}</dd>
+                </div>
+              )}
               <div className="flex items-center justify-between border-b border-separator pb-2">
                 <dt className="text-muted">ISBN</dt>
                 <dd className="text-xs font-medium text-foreground">{book.isbn || 'Edição escolar'}</dd>
