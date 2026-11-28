@@ -4,12 +4,11 @@ import { AlertTriangle, ArrowRight, BookOpen, Calendar, Download, RotateCcw } fr
 import { BookCover } from '@/components/BookCover'
 import { WebReaderModal } from '@/components/WebReaderModal'
 import { useApp } from '@/context/AppContext'
-import { STUDENT_USER } from '@/data/mockData'
 import { cn, formatDateBR, getRemainingDays } from '@/lib/utils'
 import type { Book, LoanStatus } from '@/types/arandu'
 
 export function MyLoansPage() {
-  const { books, loans, downloadBook, returnBook, borrowBook } = useApp()
+  const { user, books, loans, downloadBook, returnBook, borrowBook } = useApp()
   const [activeTab, setActiveTab] = useState<LoanStatus>('ativo')
   const [readingBook, setReadingBook] = useState<Book | null>(null)
 
@@ -36,14 +35,20 @@ export function MyLoansPage() {
       <div className="flex flex-col justify-between gap-4 rounded-lg border border-border bg-surface p-5 sm:flex-row sm:items-center sm:p-6">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider text-brilliant-azure-700">
-            Estante do Estudante •{' '}
-            <span className="whitespace-nowrap">Matrícula {STUDENT_USER.enrollmentId}</span>
+            Estante do Estudante
+            {user?.enrollmentId && (
+              <>
+                {' '}•{' '}
+                <span className="whitespace-nowrap">Matrícula {user.enrollmentId}</span>
+              </>
+            )}
           </p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
             Meus Empréstimos
           </h1>
           <p className="mt-1 text-sm text-muted">
-            {STUDENT_USER.name} • {STUDENT_USER.gradeClass}
+            {user?.name || 'Estudante'}
+            {user?.classRoom ? ` • ${user.classRoom.nome}` : ''}
           </p>
         </div>
 

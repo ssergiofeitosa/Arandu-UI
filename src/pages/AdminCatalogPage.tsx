@@ -19,7 +19,7 @@ import { BookFormModal } from '@/components/admin/BookFormModal'
 import { StudentFormModal } from '@/components/admin/StudentFormModal'
 import { DialogModal } from '@/components/ui/DialogModal'
 import { useApp, type NewBookPayload, type NewStudentPayload } from '@/context/AppContext'
-import { CATEGORIES, GRADE_CLASSES, TEACHER_USER } from '@/data/mockData'
+import { CATEGORIES, GRADE_CLASSES } from '@/data/mockData'
 import { cn, formatDateBR } from '@/lib/utils'
 import type { Book, Student } from '@/types/arandu'
 
@@ -34,6 +34,7 @@ function getInitials(name: string): string {
 
 export function AdminCatalogPage() {
   const {
+    user,
     books,
     schoolLoans,
     students,
@@ -113,7 +114,7 @@ export function AdminCatalogPage() {
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider text-brilliant-azure-700">
-            Painel Docente • {TEACHER_USER.name}
+            Painel Docente • {user?.name || 'Bibliotecário'}
           </p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
             Gestão do Acervo e Alunos

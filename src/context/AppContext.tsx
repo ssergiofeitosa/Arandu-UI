@@ -1,29 +1,48 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import {
   INITIAL_BOOKS,
   INITIAL_LOANS,
   INITIAL_SCHOOL_LOANS,
   INITIAL_STUDENTS,
-  STUDENT_USER,
-  TEACHER_USER,
 } from '@/data/mockData'
+import { hasPermission } from '@/lib/rbac'
 import { addDaysIso } from '@/lib/utils'
-import type { Book, Loan, SchoolLoan, Student, ToastItem, UserRole } from '@/types/arandu'
+import {
+  clearAuthTokens,
+  getAccessToken,
+  getRefreshToken,
+  setAuthTokens,
+  setUnauthorizedHandler,
+} from '@/services/api'
+import { fetchCurrentUser, loginWithApi } from '@/services/authService'
+import type {
+  AuthUser,
+  Book,
+  Loan,
+  Permission,
+  SchoolLoan,
+  Student,
+  ToastItem,
+  UserRole,
+} from '@/types/arandu'
 
 export type NewBookPayload = Omit<Book, 'id' | 'downloadsCount'>
 export type NewStudentPayload = Omit<Student, 'id' | 'createdAt'>
 
 interface AppContextValue {
+  user: AuthUser | null
   isAuthenticated: boolean
+  isAuthLoading: boolean
   role: UserRole
+  can: (permission: Permission) => boolean
   books: Book[]
   loans: Loan[]
   schoolLoans: SchoolLoan[]
   students: Student[]
   toasts: ToastItem[]
-  login: (roleOverride?: UserRole) => UserRole
+  login: (identificador: string, password: string) => Promise<AuthUser>
   logout: () => void
-  setRole: (nextRole: UserRole) => void
+  refreshUser: () => Promise<AuthUser | null>
   getActiveLoan: (bookId: string) => Loan | undefined
   borrowBook: (bookId: string) => Loan | null
   returnBook: (loanId: string) => void
@@ -39,51 +58,19 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | undefined>(undefined)
 
-const SESSION_STORAGE_KEY = 'arandu_mock_session'
-
-interface StoredSession {
-  isAuthenticated: boolean
-  role: UserRole
-}
-
-function readStoredSession(): StoredSession {
-  try {
-    const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY)
-    if (!raw) return { isAuthenticated: false, role: 'student' }
-    const parsed = JSON.parse(raw) as Partial<StoredSession>
-    if (
-      parsed.isAuthenticated === true &&
-      (parsed.role === 'student' || parsed.role === 'teacher')
-    ) {
-      return { isAuthenticated: true, role: parsed.role }
-    }
-  } catch {
-    // ignore storage access errors in restricted environments
-  }
-  return { isAuthenticated: false, role: 'student' }
-}
-
-function writeStoredSession(session: StoredSession | null) {
-  try {
-    if (!session) {
-      window.sessionStorage.removeItem(SESSION_STORAGE_KEY)
-      return
-    }
-    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session))
-  } catch {
-    // ignore storage access errors in restricted environments
-  }
-}
-
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [initialSession] = useState<StoredSession>(() => readStoredSession())
-  const [isAuthenticated, setIsAuthenticated] = useState(initialSession.isAuthenticated)
-  const [role, setRoleState] = useState<UserRole>(initialSession.role)
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(() =>
+    Boolean(getAccessToken() || getRefreshToken()),
+  )
   const [books, setBooks] = useState<Book[]>(INITIAL_BOOKS)
   const [loans, setLoans] = useState<Loan[]>(INITIAL_LOANS)
   const [schoolLoans, setSchoolLoans] = useState<SchoolLoan[]>(INITIAL_SCHOOL_LOANS)
   const [students, setStudents] = useState<Student[]>(INITIAL_STUDENTS)
   const [toasts, setToasts] = useState<ToastItem[]>([])
+
+  const isAuthenticated = Boolean(user)
+  const role: UserRole = user?.role ?? 'student'
 
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((item) => item.id !== id))
@@ -100,52 +87,104 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [dismissToast],
   )
 
+  const can = useCallback(
+    (permission: Permission) => hasPermission(user, permission),
+    [user],
+  )
+
+  const refreshUser = useCallback(async (): Promise<AuthUser | null> => {
+    if (!getAccessToken() && !getRefreshToken()) {
+      setUser(null)
+      return null
+    }
+
+    try {
+      const current = await fetchCurrentUser()
+      setUser(current)
+      return current
+    } catch {
+      clearAuthTokens()
+      setUser(null)
+      return null
+    }
+  }, [])
+
+  useEffect(() => {
+    setUnauthorizedHandler((reason) => {
+      setUser((prev) => {
+        if (prev) {
+          pushToast({
+            title: 'Sessão encerrada',
+            description: reason || 'Faça login novamente para continuar.',
+          })
+        }
+        return null
+      })
+    })
+    return () => setUnauthorizedHandler(null)
+  }, [pushToast])
+
+  useEffect(() => {
+    let active = true
+    if (!getAccessToken() && !getRefreshToken()) {
+      setIsAuthLoading(false)
+      return
+    }
+
+    fetchCurrentUser()
+      .then((current) => {
+        if (active) setUser(current)
+      })
+      .catch(() => {
+        clearAuthTokens()
+        if (active) setUser(null)
+      })
+      .finally(() => {
+        if (active) setIsAuthLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
   const login = useCallback(
-    (roleOverride?: UserRole): UserRole => {
-      const resolvedRole = roleOverride ?? role
-      setRoleState(resolvedRole)
-      setIsAuthenticated(true)
-      writeStoredSession({ isAuthenticated: true, role: resolvedRole })
+    async (identificador: string, password: string): Promise<AuthUser> => {
+      const { access, refresh, user: loggedUser } = await loginWithApi(identificador, password)
+      setAuthTokens(access, refresh)
+      setUser(loggedUser)
+
+      // Enriquecer com resumo_emprestimos do /auth/me/ em segundo plano sem bloquear login
+      fetchCurrentUser()
+        .then((fresh) => setUser(fresh))
+        .catch(() => {
+          // mantém dados básicos retornados pelo login
+        })
+
       pushToast({
-        title:
-          resolvedRole === 'teacher'
-            ? `Bem-vindo, ${TEACHER_USER.name}`
-            : `Bem-vinda, ${STUDENT_USER.name}`,
+        title: `Bem-vindo(a), ${loggedUser.name}`,
         description:
-          resolvedRole === 'teacher'
-            ? 'Visão de professor ativada (mock).'
-            : `Matrícula ${STUDENT_USER.enrollmentId} acessada (mock).`,
+          loggedUser.role === 'teacher'
+            ? 'Acesso de Bibliotecário / Gestão ativado.'
+            : loggedUser.enrollmentId
+              ? `Matrícula ${loggedUser.enrollmentId} conectada.`
+              : 'Sessão de estudante iniciada.',
         variant: 'success',
       })
-      return resolvedRole
+
+      return loggedUser
     },
-    [pushToast, role],
+    [pushToast],
   )
 
   const logout = useCallback(() => {
-    setIsAuthenticated(false)
-    writeStoredSession(null)
+    clearAuthTokens()
+    setUser(null)
     pushToast({
       title: 'Sessão encerrada',
       description: 'Você voltou para a tela inicial.',
     })
   }, [pushToast])
-
-  const setRole = useCallback(
-    (nextRole: UserRole) => {
-      setRoleState(nextRole)
-      setIsAuthenticated(true)
-      writeStoredSession({ isAuthenticated: true, role: nextRole })
-      pushToast({
-        title: nextRole === 'teacher' ? 'Modo Professor' : 'Modo Aluno',
-        description:
-          nextRole === 'teacher'
-            ? 'Visualizando o painel de gestão do acervo.'
-            : 'Visualizando a experiência do estudante.',
-      })
-    },
-    [pushToast],
-  )
 
   const getActiveLoan = useCallback(
     (bookId: string) =>
@@ -180,9 +219,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         {
           id: `sch-${Date.now()}`,
           bookId,
-          studentName: STUDENT_USER.name,
-          enrollmentId: STUDENT_USER.enrollmentId,
-          gradeClass: STUDENT_USER.gradeClass,
+          studentName: user?.name || 'Estudante',
+          enrollmentId: user?.enrollmentId || '—',
+          gradeClass: user?.classRoom?.nome || 'Sem turma',
           dueAt: dueIso,
           status: 'ativo',
         },
@@ -202,7 +241,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
       return created
     },
-    [books, loans, pushToast],
+    [books, loans, pushToast, user],
   )
 
   const returnBook = useCallback(
@@ -219,10 +258,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ),
       )
 
+      const currentEnrollment = user?.enrollmentId
       setSchoolLoans((prev) =>
         prev.map((s) =>
           s.bookId === target.bookId &&
-          s.enrollmentId === STUDENT_USER.enrollmentId &&
+          (!currentEnrollment || s.enrollmentId === currentEnrollment) &&
           s.status !== 'devolvido'
             ? { ...s, status: 'devolvido' }
             : s,
@@ -234,7 +274,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         description: book ? `"${book.title}" marcada como devolvida.` : 'Devolução registrada.',
       })
     },
-    [books, loans, pushToast],
+    [books, loans, pushToast, user],
   )
 
   const downloadBook = useCallback(
@@ -373,8 +413,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo(
     () => ({
+      user,
       isAuthenticated,
+      isAuthLoading,
       role,
+      can,
       books,
       loans,
       schoolLoans,
@@ -382,7 +425,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toasts,
       login,
       logout,
-      setRole,
+      refreshUser,
       getActiveLoan,
       borrowBook,
       returnBook,
@@ -396,8 +439,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dismissToast,
     }),
     [
+      user,
       isAuthenticated,
+      isAuthLoading,
       role,
+      can,
       books,
       loans,
       schoolLoans,
@@ -405,7 +451,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toasts,
       login,
       logout,
-      setRole,
+      refreshUser,
       getActiveLoan,
       borrowBook,
       returnBook,

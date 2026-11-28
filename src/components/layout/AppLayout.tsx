@@ -2,7 +2,7 @@ import React, { startTransition, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { LogOut, Menu, ShieldCheck, UserCheck, X } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
-import { SCHOOL_NAME, STUDENT_USER, TEACHER_USER } from '@/data/mockData'
+import { SCHOOL_NAME } from '@/data/mockData'
 import { cn } from '@/lib/utils'
 
 interface AppLayoutProps {
@@ -11,7 +11,7 @@ interface AppLayoutProps {
 }
 
 export function AppLayout({ children, hideFooter = false }: AppLayoutProps) {
-  const { isAuthenticated, role, loans, logout } = useApp()
+  const { user, isAuthenticated, role, can, loans, logout } = useApp()
   const location = useLocation()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -20,9 +20,11 @@ export function AppLayout({ children, hideFooter = false }: AppLayoutProps) {
     setMobileOpen(false)
   }, [location.pathname])
 
-  const activeLoansCount = loans.filter(
-    (l) => l.status === 'ativo' || l.status === 'atrasado',
-  ).length
+  const activeLoansCount =
+    user?.loanSummary !== undefined
+      ? user.loanSummary.ativos + user.loanSummary.atrasados
+      : loans.filter((l) => l.status === 'ativo' || l.status === 'atrasado').length
+  const displayName = user?.name || (role === 'teacher' ? 'Bibliotecário' : 'Estudante')
 
   const handleLogout = () => {
     setMobileOpen(false)
@@ -70,7 +72,7 @@ export function AppLayout({ children, hideFooter = false }: AppLayoutProps) {
               </>
             )}
 
-            {isAuthenticated && role === 'student' && (
+            {isAuthenticated && can('loans:self') && (
               <>
                 <Link
                   to="/catalogo"
@@ -100,7 +102,7 @@ export function AppLayout({ children, hideFooter = false }: AppLayoutProps) {
               </>
             )}
 
-            {isAuthenticated && role === 'teacher' && (
+            {isAuthenticated && can('admin:panel') && (
               <>
                 <Link
                   to="/catalogo"
@@ -139,7 +141,7 @@ export function AppLayout({ children, hideFooter = false }: AppLayoutProps) {
               <>
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground">
                   <UserCheck className="h-3.5 w-3.5 text-light-green-700" aria-hidden="true" />
-                  {STUDENT_USER.name}
+                  {displayName}
                 </span>
                 <button
                   type="button"
@@ -154,7 +156,7 @@ export function AppLayout({ children, hideFooter = false }: AppLayoutProps) {
               <>
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-light-green/40 px-3 py-1.5 text-xs font-semibold text-shadow-grey">
                   <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                  {TEACHER_USER.name}
+                  {displayName}
                 </span>
                 <button
                   type="button"
@@ -226,7 +228,7 @@ export function AppLayout({ children, hideFooter = false }: AppLayoutProps) {
                     className="mt-1 flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-sm font-medium"
                   >
                     <LogOut className="h-4 w-4" />
-                    Sair ({STUDENT_USER.name})
+                    Sair ({displayName})
                   </button>
                 </>
               ) : (

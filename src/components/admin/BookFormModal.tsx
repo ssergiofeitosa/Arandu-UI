@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Check, FileUp, ImagePlus, UploadCloud, X } from 'lucide-react'
 import { BookCover } from '@/components/BookCover'
 import { DialogModal } from '@/components/ui/DialogModal'
-import type { NewBookPayload } from '@/context/AppContext'
-import { CATEGORIES, TEACHER_USER } from '@/data/mockData'
+import { useApp, type NewBookPayload } from '@/context/AppContext'
+import { CATEGORIES } from '@/data/mockData'
 import { cn, formatFileSize, slugifyFilename } from '@/lib/utils'
 import type { Book, BookAccessMode, BookFormat, Category, FallbackTone } from '@/types/arandu'
 
@@ -22,6 +22,7 @@ const TONES: { id: FallbackTone; label: string }[] = [
 ]
 
 export function BookFormModal({ open, onClose, editingBook, onSave }: BookFormModalProps) {
+  const { user } = useApp()
   const [title, setTitle] = useState('')
   const [author, setAuthor] = useState('')
   const [isbn, setIsbn] = useState('')
@@ -150,7 +151,7 @@ export function BookFormModal({ open, onClose, editingBook, onSave }: BookFormMo
         synopsis:
           synopsis.trim() ||
           'Material digital publicado pela equipe docente para leitura gratuita dos estudantes.',
-        curatorName: editingBook?.curatorName ?? TEACHER_USER.name,
+        curatorName: editingBook?.curatorName ?? user?.name ?? 'Bibliotecário',
         visible,
         coverUrl,
         fallbackTone: tone,

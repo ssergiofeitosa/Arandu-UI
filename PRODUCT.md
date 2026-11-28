@@ -18,20 +18,20 @@ web
 ## Positioning
 
 Plataforma institucional dedicada à escola pública estadual que diferencia claramente duas modalidades de acesso:
-- **Obras em domínio público (e apostilas institucionais):** download direto em PDF/EPUB com recomendação prática de aplicativos gratuitos para leitura offline no celular ou computador.
-- **Obras em aluguel temporário:** leitura protegida diretamente no navegador, sem depender de instalação de leitores externos nem expor o arquivo bruto.
+- **Obras em domínio público (e apostilas institucionais):** download direto (sem necessidade de empréstimo) em **PDF ou EPUB**, com recomendação prática de aplicativos gratuitos para leitura offline no celular ou computador; obras em PDF também podem ser lidas no navegador.
+- **Obras em aluguel temporário:** arquivo estritamente em **PDF**, exigindo empréstimo temporário com leitura protegida diretamente no visualizador de PDF do navegador (`pdfjs-dist`), sem depender de instalação de leitores externos nem expor o arquivo bruto.
 
 ## Operating Context
 
-- Fluxo atual implementado como protótipo web em React + Vite com dados mockados e alternador temporário de prévia (`Aluno` / `Professor`) para validação de experiência antes da integração com backend Django.
+- Autenticação JWT e RBAC (`ALUNO` / `BIBLIOTECARIO`) + recuperação de senha já integrados ao backend Django (`apps/contas`). Catálogo, empréstimos e gestão de acervo/alunos seguem em migração gradual de `src/data/mockData.ts` para a API REST.
 - Ambiente real de uso inclui dispositivos móveis de entrada, redes escolares com banda limitada e computadores compartilhados da escola.
 
 ## Capabilities and Constraints
 
-- **Fluxos confirmados:** vitrine institucional (`/`), autenticação (`/login`), catálogo filtrável por categoria/formato/busca (`/catalogo`), página da obra (`/livros/:id`), estante de empréstimos do estudante (`/meus-emprestimos`) e painel docente com gestão do acervo e cadastro/edição/ativação de alunos (`/admin-acervo`).
-- **Regra de leitura e empréstimo:** obras de domínio público liberam download com recomendação de apps; obras de aluguel temporário utilizam leitor web embutido no navegador.
+- **Fluxos confirmados:** vitrine institucional (`/`), autenticação JWT (`/login`), recuperação de senha (`/esqueci-senha` e `/redefinir-senha`), catálogo filtrável por categoria/formato/busca (`/catalogo`), página da obra (`/livros/:id`), estante de empréstimos do estudante (`/meus-emprestimos`) e painel docente com gestão do acervo e cadastro/edição/ativação de alunos (`/admin-acervo`).
+- **Regra de leitura e empréstimo:** obras de domínio público liberam download direto (PDF ou EPUB) com recomendação de apps; obras de aluguel temporário (somente PDF) exigem empréstimo para leitura no visualizador web embutido no navegador.
 - **Decisão em aberto:** a duração exata do prazo de aluguel temporário ainda não está definida (não fixar quantidade específica de dias como regra permanente do produto).
-- **Restrição de protótipo:** o componente `DevRoleSwitcher` é exclusivo de ambiente de prévia/desenvolvimento e deverá ser removido na integração com autenticação Django.
+- **RBAC ativo:** `DevRoleSwitcher` removido; o controle de acesso separa permissões de estudante (`catalog:read`, `loans:self`) e bibliotecário/docente (`catalog:read`, `admin:*`) com validação real na API Django.
 
 ## Brand Commitments
 

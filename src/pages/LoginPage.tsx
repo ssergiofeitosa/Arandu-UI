@@ -1,26 +1,58 @@
 import React, { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Eye, EyeOff, Lock, Mail } from 'lucide-react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react'
 import { BookCover } from '@/components/BookCover'
 import { useApp } from '@/context/AppContext'
 import { SCHOOL_NAME } from '@/data/mockData'
+import { ROLE_HOME_ROUTE } from '@/lib/rbac'
+import { ApiError } from '@/services/api'
+
+interface LoginLocationState {
+  from?: string
+}
 
 export function LoginPage() {
   const { login } = useApp()
   const navigate = useNavigate()
+  const location = useLocation()
+  const fromPath = (location.state as LoginLocationState | null)?.from
 
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
 
-  // Fluxo mockado: clicar em Entrar já acessa o sistema mesmo sem preencher nada
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const normalized = identifier.trim().toLowerCase()
-    const guessedRole =
-      normalized.includes('prof') || normalized.includes('carlos') ? 'teacher' : 'student'
-    const nextRole = login(guessedRole)
-    navigate(nextRole === 'teacher' ? '/admin-acervo' : '/catalogo')
+
+    if (!identifier.trim() || !password) {
+      setError('Informe sua matrícula ou e-mail institucional e sua senha.')
+      return
+    }
+
+    setError('')
+    setSubmitting(true)
+    try {
+      const loggedUser = await login(identifier, password)
+      const defaultTarget = ROLE_HOME_ROUTE[loggedUser.role]
+
+      const canReturnToFrom =
+        Boolean(fromPath) &&
+        fromPath !== '/login' &&
+        !(loggedUser.role === 'student' && fromPath?.startsWith('/admin-acervo')) &&
+        !(loggedUser.role === 'teacher' && fromPath?.startsWith('/meus-emprestimos'))
+
+      navigate(canReturnToFrom && fromPath ? fromPath : defaultTarget, { replace: true })
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message)
+      } else {
+        setError('Não foi possível entrar agora. Tente novamente em instantes.')
+      }
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -82,17 +114,17 @@ export function LoginPage() {
         </div>
       </aside>
 
-      {/* Painel direito com formulário de entrada sem validação bloqueante */}
+      {/* Painel direito com autenticação JWT real */}
       <section className="flex items-center justify-center bg-background px-4 py-12 sm:px-8 lg:col-span-6">
         <div className="w-full max-w-md rounded-lg border border-border bg-surface p-6 shadow-sm sm:p-8">
-          <h2 className="mt-3 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+          <h2 className="mt-1 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
             Entrar no Arandu
           </h2>
           <p className="mt-1.5 text-sm text-muted">
-            Não precisa preencher os campos nesta prévia — basta clicar em entrar.
+            Use sua matrícula escolar ou e-mail institucional cadastrado pela biblioteca.
           </p>
 
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+          <form onSubmit={handleSubmit} noValidate className="mt-6 space-y-4">
             <div className="space-y-1.5">
               <label htmlFor="login-id" className="text-sm font-medium text-foreground">
                 Matrícula ou E-mail institucional
@@ -102,26 +134,46 @@ export function LoginPage() {
                 <input
                   id="login-id"
                   type="text"
+                  required
+                  autoComplete="username"
                   value={identifier}
-                  onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="Ex.: 2026-04819 (opcional)"
+                  onChange={(e) => {
+                    setIdentifier(e.target.value)
+                    if (error) setError('')
+                  }}
+                  placeholder="Ex.: 2026-04819 ou nome@arandu.edu.br"
+                  aria-invalid={Boolean(error && !identifier.trim())}
                   className="h-11 w-full rounded-field border border-border bg-field-background pl-10 pr-3.5 text-sm text-field-foreground placeholder:text-field-placeholder focus-visible:outline-focus"
                 />
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="login-pass" className="text-sm font-medium text-foreground">
-                Senha
-              </label>
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="login-pass" className="text-sm font-medium text-foreground">
+                  Senha
+                </label>
+                <Link
+                  to="/esqueci-senha"
+                  className="text-xs font-medium text-brilliant-azure-700 hover:underline"
+                >
+                  Esqueci minha senha
+                </Link>
+              </div>
               <div className="relative">
                 <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
                 <input
                   id="login-pass"
                   type={showPassword ? 'text' : 'password'}
+                  required
+                  autoComplete="current-password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="•••••••• (opcional)"
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    if (error) setError('')
+                  }}
+                  placeholder="Digite sua senha"
+                  aria-invalid={Boolean(error && !password)}
                   className="h-11 w-full rounded-field border border-border bg-field-background pl-10 pr-10 text-sm text-field-foreground placeholder:text-field-placeholder focus-visible:outline-focus"
                 />
                 <button
@@ -135,12 +187,31 @@ export function LoginPage() {
               </div>
             </div>
 
+            {error && (
+              <p
+                role="alert"
+                className="rounded-field border border-watermelon-300 bg-watermelon-50 px-3.5 py-2.5 text-xs font-medium text-watermelon-700"
+              >
+                {error}
+              </p>
+            )}
+
             <button
               type="submit"
-              className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-field bg-shadow-grey px-5 text-sm font-semibold text-white transition-colors duration-200 hover:bg-accent hover:text-accent-foreground focus-visible:outline-focus"
+              disabled={submitting}
+              className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-field bg-shadow-grey px-5 text-sm font-semibold text-white transition-colors duration-200 hover:bg-accent hover:text-accent-foreground focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-65"
             >
-              <span>Entrar no Arandu</span>
-              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              {submitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  <span>Entrando...</span>
+                </>
+              ) : (
+                <>
+                  <span>Entrar no Arandu</span>
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </>
+              )}
             </button>
           </form>
         </div>
